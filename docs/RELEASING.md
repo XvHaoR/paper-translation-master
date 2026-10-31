@@ -9,7 +9,7 @@
 ```powershell
 python -m pip install -e ".[dev]" pyinstaller==6.21.0
 python -m pytest tests/unit tests/integration -q
-python packaging/build_release.py --installer --tag v0.3.0
+python packaging/build_release.py --installer --tag v0.3.1
 ```
 
 Windows 安装器只能在 Windows x64 上构建。普通 `python zotero/build.py`

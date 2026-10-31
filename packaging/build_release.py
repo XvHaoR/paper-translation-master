@@ -28,7 +28,7 @@ RUNTIME_SCRIPTS = {"scripts/launcher.py", "scripts/zotero_service.py", "scripts/
                    "scripts/process_lifetime.py", "scripts/edit_saved_ocr.py", "scripts/runtime_config.py"}
 ROOT_FILES = {"pyproject.toml", "release.json", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"}
 SOURCE_ROOT_FILES = ROOT_FILES | {".gitignore"}
-PUBLIC_DOCS = {"docs/INSTALLATION.md", "docs/RELEASING.md"}
+PUBLIC_DOCS = {"docs/INSTALLATION.md", "docs/RELEASING.md", "docs/READER_ARCHITECTURE.md"}
 PRIVATE_PATTERNS = [
     re.compile(rb"[A-Za-z]:[\\/]+(?:Users[\\/]+(?!Public(?:[\\/]|$)|Default(?:[\\/]|$))[^\\/\s\"']+[\\/]+|claude_test[\\/]+)", re.I),
     re.compile(rb"(?:sk-[A-Za-z0-9_-]{24,}|AIza[A-Za-z0-9_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,})"),
@@ -171,6 +171,7 @@ def build_release(*, root: Path = ROOT, output: Path | None = None,
     preview_note = "安装器预览版：预览版需手动升级，不向稳定版自动更新通道推送。\n\n" if release.get("prerelease") else ""
     notes.write_text(
         f"{release['name']} {version}\n\n" + preview_note +
+        "".join(f"- {change}\n" for change in release.get("changes", [])) + "\n" +
         "- 下载 `.xpi`，在 Zotero → 工具 → 插件中选择从文件安装。\n"
         "- Windows 用户下载 `-setup-` 安装器；安装器自动准备独立 Python、OCR 依赖和模型，首次需要联网。\n"
         "- 在插件设置中填写自己的大模型 API 地址、模型名称及密钥，按需翻译。\n"

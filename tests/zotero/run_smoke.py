@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import socket
+import shutil
 import subprocess
 import sys
 import threading
@@ -64,6 +65,43 @@ def main():
     conversion.ir.blocks.append(Block(id="smoke-edit-figure", type=BlockType.FIGURE, page=1, order=1001,
         bbox=[.6,.6,.9,.8], content=BlockContent(image_path="assets/edit-figure.png")))
     (conversion.doc_dir / "document.json").write_text(conversion.ir.model_dump_json(), encoding="utf-8")
+    real_artifact = json.loads(args.real_ocr_fixture.read_text(encoding="utf-8")) if args.real_ocr_fixture else None
+    legacy_migration = None
+    real_source_matches = False
+    if real_artifact:
+        # Old exports deliberately do not embed their source IR. A later OCR
+        # can replace that mutable cache, so never borrow the developer's live
+        # workspace during migration tests. Snapshot it into this test run.
+        import hashlib
+        import re
+        from app.services.translation_export import create_ocr_export
+        source_directory = Path(real_artifact["pdf"]).parent
+        document_id = real_artifact["manifest"]["document_id"]
+        isolated_document = settings.workspace / "documents" / document_id
+        shutil.copytree(source_directory, isolated_document,
+                        ignore=shutil.ignore_patterns("ocr", "translations"))
+        source_bytes = (isolated_document / "document.json").read_bytes()
+        real_source_matches = hashlib.sha256(source_bytes).hexdigest() == real_artifact["manifest"]["source_sha256"]
+        fresh = create_ocr_export(isolated_document)
+        fresh_directory = isolated_document / "ocr" / fresh["id"]
+        legacy_directory = run / "legacy-migration-fixture"
+        shutil.copytree(fresh_directory, legacy_directory,
+                        ignore=shutil.ignore_patterns("editor.json", "source.json", "source.zip", "bundle.zip"))
+        legacy_manifest = json.loads((legacy_directory / "manifest.json").read_text(encoding="utf-8"))
+        for field in ("edit_revision", "source_revision", "edited"):
+            legacy_manifest.pop(field, None)
+        legacy_manifest["schema"] = 5
+        (legacy_directory / "manifest.json").write_text(json.dumps(legacy_manifest, ensure_ascii=False), encoding="utf-8")
+        page = (legacy_directory / "index.html").read_text(encoding="utf-8")
+        page = re.sub(r'<script type="application/json" id="pl-editor-data">.*?</script>', "", page, flags=re.S)
+        (legacy_directory / "index.html").write_text(page, encoding="utf-8")
+        legacy_bundle = legacy_directory / "bundle.zip"
+        with zipfile.ZipFile(legacy_bundle, "w", zipfile.ZIP_DEFLATED) as archive:
+            for path in legacy_directory.rglob("*"):
+                if path.is_file() and path != legacy_bundle:
+                    archive.write(path, path.relative_to(legacy_directory).as_posix())
+        legacy_migration = {"pdf": str(isolated_document / "original.pdf"),
+                            "bundle": str(legacy_bundle), "manifest": legacy_manifest}
     app = create_app(settings)
     calls = {"ocr": 0, "llm": 0}
     block_next = threading.Event()
@@ -165,9 +203,12 @@ def main():
         f"var smokePythonPath = {json.dumps(sys.executable)};",
         f"var smokeManagedURL = {json.dumps(f'http://127.0.0.1:{managed_port}')};",
         f"var smokeQuitBackend = {json.dumps(args.quit_backend)};",
+        f"var smokeWorkspacePath = {json.dumps(str(settings.workspace))};",
         f"var smokeScreenshotPath = {json.dumps(str(run / 'integrated-reader.png'))};",
         f"var smokeLibraryScreenshotPath = {json.dumps(str(run / 'library-status.png'))};",
-        f"var smokeRealArtifact = {json.dumps(json.loads(args.real_ocr_fixture.read_text(encoding='utf-8')) if args.real_ocr_fixture else None)};",
+        f"var smokeRealArtifact = {json.dumps(real_artifact)};",
+        f"var smokeRealSourceMatches = {json.dumps(real_source_matches)};",
+        f"var smokeLegacyMigration = {json.dumps(legacy_migration)};",
         f"var smokeRealTranslation = {json.dumps(json.loads(args.real_translation_fixture.read_text(encoding='utf-8')) if args.real_translation_fixture else None)};",
         f"var smokeActualFigureScreenshotPath = {json.dumps(str(run / 'actual-figure.png'))};",
         f"var smokeActualFormulaScreenshotPath = {json.dumps(str(run / 'actual-formula.png'))};",
@@ -214,6 +255,16 @@ def main():
       this.document.querySelectorAll('.pl-block.selected').forEach(node=>node.classList.remove('selected'));
       this.document.body.classList.remove('has-selection');return true;
     }
+    if(message.name==='brand-contract'){
+      const nav=this.document.querySelector('nav');
+      const oldActorRecognizes=nav?.textContent.includes('PaperLoom')||false;
+      if(message.data?.rename){
+        nav.querySelectorAll('[hidden]').forEach(node=>node.remove());
+        for(const node of nav.childNodes)if(node.nodeType===3)node.textContent=' 用户自定义阅读器名称 ';
+        this.document.body.dataset.zoteroBridge='false';
+      }
+      return {oldActorRecognizes,protocol:this.document.body.dataset.readerProtocol};
+    }
     if(message.name==='click'){
       const node=this.document.querySelector(message.data.selector);
       if(!node)throw new Error('Missing test control: '+message.data.selector);
@@ -246,6 +297,9 @@ def main():
       caption5Math:caption5?.querySelectorAll('mjx-msub').length||0,
       translationMode:this.document.body.dataset.translationMode,bridge:this.document.body.dataset.zoteroBridge,
       actionReceived:this.document.body.dataset.actionReceived,status:this.document.getElementById('pl-status')?.textContent,
+      bridgeState:this.document.body.dataset.readerBridgeState,bridgeError:this.document.body.dataset.readerBridgeError,
+      mathControlsReady:this.document.body.dataset.mathControlsReady,mathCopyButtons:this.document.querySelectorAll('[data-action="copy-latex"]').length,
+      firstMathHTML:this.document.querySelector('main .pl-target [data-latex]')?.outerHTML.slice(0,1200),
       firstLatex:this.document.querySelector('main .pl-target [data-latex]')?.dataset.latex,
       visibleSources:Array.from(this.document.querySelectorAll('.pl-source')).filter(node=>this.contentWindow.getComputedStyle(node).display!=='none').length,
       sourceCount:this.document.querySelectorAll('.pl-source').length,blockCount:this.document.querySelectorAll('.pl-block').length,

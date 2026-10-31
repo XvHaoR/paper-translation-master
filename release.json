@@ -2,7 +2,12 @@
   "name": "论文翻译大师",
   "slug": "paper-translation-master",
   "runtimeDirectory": "PaperTranslationMaster",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "repository": "XvHaoR/paper-translation-master",
-  "prerelease": true
+  "prerelease": true,
+  "changes": [
+    "修复旧插件与改名后阅读页混用时的段落定位，已有 OCR 和译文无需重新生成。",
+    "拆分通信、阅读布局、字体外观、PDF 坐标与高亮模块；高亮关闭后仍可双向定位。",
+    "修复 MathJax 异步排版移除公式复制控件的边界，并补新旧页面、连续切换和故障恢复回归。"
+  ]
 }

@@ -1,7 +1,7 @@
 # Windows OCR 安装器
 
 面向 Windows 10/11 x64 + NVIDIA GPU 的图形安装器。下载 Release 中的
-`paper-translation-master-setup-0.3.0.exe`，双击，点击「安装 OCR 引擎」。
+`paper-translation-master-setup-0.3.1.exe`，双击，点击「安装 OCR 引擎」。
 用户不需要安装 Python、Git、WSL、Docker 或输入终端命令。
 
 当前自动安装范围保守限制为至少 8 GB 显存、CC 7.x–9.x 和支持 CUDA 12.6
@@ -34,7 +34,7 @@ CPython 和 pip 启动文件采用固定 HTTPS 下载及 SHA-256 校验，Pip �
 再使用已安装 PyInstaller 的 Python 执行：
 
 ```powershell
-python packaging/installer/build.py --runtime dist/paper-translation-master-runtime-0.3.0.zip --output dist
+python packaging/installer/build.py --runtime dist/paper-translation-master-runtime-0.3.1.zip --output dist
 ```
 
 构建不会安装 OCR 或下载模型，只将文档引擎源码内嵌到 Setup.exe。

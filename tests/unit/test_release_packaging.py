@@ -69,7 +69,8 @@ def test_release_hashes_and_update_manifest(release_tree):
     # The source pack also includes the build script itself.
     (release_tree / "packaging").mkdir(exist_ok=True)
     shutil.copyfile(ROOT / "packaging/build_release.py", release_tree / "packaging/build_release.py")
-    artifacts = release_builder.build_release(root=release_tree, tag="v0.3.0")
+    version = json.loads((release_tree / "release.json").read_text(encoding="utf-8"))["version"]
+    artifacts = release_builder.build_release(root=release_tree, tag="v" + version)
     output = artifacts[0].parent
     checksums = (output / "SHA256SUMS").read_text(encoding="ascii").splitlines()
     for line in checksums:
@@ -77,10 +78,10 @@ def test_release_hashes_and_update_manifest(release_tree):
         assert hashlib.sha256((output / name).read_bytes()).hexdigest() == expected
     updates = json.loads((output / "updates.json").read_text(encoding="utf-8"))
     update = updates["addons"]["paperloom@paperloom.local"]["updates"][0]
-    assert update["version"] == "0.3.0"
+    assert update["version"] == version
     assert update["update_hash"] == "sha256:" + hashlib.sha256(artifacts[0].read_bytes()).hexdigest()
     assert update["applications"]["zotero"]["strict_max_version"]
-    assert "/releases/download/v0.3.0/" in update["update_link"]
+    assert f"/releases/download/v{version}/" in update["update_link"]
 
 
 def test_tag_and_version_mismatch_fail_before_build(release_tree):

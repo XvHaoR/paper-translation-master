@@ -1,11 +1,11 @@
 # 安装论文翻译大师
 
 下载地址：[GitHub Releases](https://github.com/XvHaoR/paper-translation-master/releases)。
-首版 `0.3.0` 是预览版，请在发布页下载，不要使用 GitHub 的“latest”地址寻找预览版。
+当前 `0.3.1` 是预览版，请在发布页下载，不要使用 GitHub 的“latest”地址寻找预览版。
 
 ## 1. 安装 Zotero 插件
 
-下载 `paper-translation-master-0.3.0.xpi`，在 Zotero 中打开「工具 → 插件／附加组件」，
+下载 `paper-translation-master-0.3.1.xpi`，在 Zotero 中打开「工具 → 插件／附加组件」，
 点击齿轮，选择「从文件安装」，选中 XPI，完成后重启 Zotero。
 
 此前安装过 PaperLoom 的用户也按此步骤替换。内部 ID 和附件标签保留，
@@ -13,7 +13,7 @@
 
 ## 2. 安装 OCR 引擎
 
-Windows 下载 `paper-translation-master-setup-0.3.0.exe`，双击，点击「安装 OCR 引擎」。
+Windows 下载 `paper-translation-master-setup-0.3.1.exe`，双击，点击「安装 OCR 引擎」。
 插件设置中的「下载 OCR 安装器」也会打开同一个发布页。
 
 自动安装器支持：

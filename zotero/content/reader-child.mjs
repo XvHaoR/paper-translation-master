@@ -1,39 +1,141 @@
+import { isSavedReader, actionPayload, READER_PROTOCOL } from "./reader-protocol.mjs";
+
 export class PaperLoomReaderChild extends JSWindowActorChild {
   handleEvent(event) {
+    if (event.type === "DOMContentLoaded" || event.type === "pageshow") this.loadedDocument = this.document;
     if (event.type === "click") {
       this.explicitLocate = !!event.target.closest?.('button[data-action="locate"]');
       return;
     }
     if (event.type === "PaperLoomAction") {
+      if (!isSavedReader(this.document)) return;
       if (this.document.body) this.document.body.dataset.actionReceived = "true";
       let data;
-      try { data = JSON.parse(event.detail); }
-      catch (_) { return; }
+      const document = this.document;
+      try { data = JSON.parse(event.detail); actionPayload(data); }
+      catch (error) { this.result({ id: data?.id, error: error.message }, document); return; }
       if (data.type === "locate" && data.revealPDF === undefined) {
         data.revealPDF = this.explicitLocate === true;
         this.explicitLocate = false;
       }
-      this.sendQuery("action", data).then(value => this.result({ id: data.id, value }), error => this.result({ id: data.id, error: error.message }));
+      Promise.resolve().then(() => this.sendQuery("action", data)).then(value => this.result({ id: data.id, value }, document), error => this.result({ id: data.id, error: error.message }, document));
       return;
     }
-    if (!this.document.body?.hasAttribute("data-export-schema") && !this.document.querySelector('nav')?.textContent.includes("PaperLoom")) return;
-    try {
-      this.sendQuery("ready").then(config => {
-        if (!this.document.body) return;
-        this.document.body.dataset.zoteroBridge = String(config?.available === true);
-        this.applyView(config?.view || {});
-        // Presentation failures must not break the action bridge or mapping.
-        try { this.applyStyle(config?.css || ""); } catch (_) {}
-      }).catch(() => {});
-    }
-    catch (_) { /* The add-on may have been disabled while this page loaded. */ }
+    if (event.type === "PaperLoomReaderConnect") this.attempts = 0;
+    if (isSavedReader(this.document)) this.connect();
   }
-  result(value) {
+  async connect() {
+    if (this.destroyed || !isSavedReader(this.document)) return { available: false };
+    if (this.connecting) return this.connecting;
+    const document = this.document;
+    this.bridgeState("connecting");
+    this.connecting = Promise.resolve().then(async () => {
+      try {
+        if (this.destroyed || this.document !== document) return { available: false };
+        const loaded = await this.documentReady(document);
+        if (this.destroyed || this.document !== document || !document.body) return { available: false };
+        if (!loaded) throw new Error("阅读页面加载超时，请重新打开当前 OCR／译文页面");
+        const config = await this.sendQuery("ready", { protocol: READER_PROTOCOL });
+        if (this.destroyed || this.document !== document || !document.body) return { available: false };
+        document.body.dataset.zoteroBridge = String(config?.available === true);
+        if (config?.available !== true) {
+          this.bridgeState("waiting", new Error("阅读窗口正在连接，请稍后再试"));
+          this.scheduleConnect();
+          return config;
+        }
+        this.attempts = 0;
+        this.cancelRetry();
+        this.bridgeState("ready");
+        // Appearance is optional; an invalid style must not disable actions.
+        try { this.applyView(config.view || {}); this.applyStyle(config.css || ""); }
+        catch (error) { this.report(error); }
+        return config;
+      } catch (error) {
+        if (!this.destroyed && this.document === document) {
+          document.body.dataset.zoteroBridge = "false";
+          this.bridgeState("waiting", error);
+          this.scheduleConnect();
+        }
+        return { available: false, error: error.message };
+      } finally { this.connecting = null; }
+    });
+    return this.connecting;
+  }
+  documentReady(document) {
+    // A file URI and body marker can appear before deferred runtime scripts
+    // have installed locate/copy/edit controls. DOMContentLoaded is the shared
+    // readiness boundary for both proactive and event-triggered handshakes.
+    const view = this.contentWindow;
+    const mustWait = () => {
+      if (document.readyState === "loading") return true;
+      // "interactive" starts before defer scripts execute. Conversely, an
+      // actor created after DOMContentLoaded must not await a past event: the
+      // runtime's final exported object proves its controls are installed.
+      if (document.readyState !== "interactive" || this.loadedDocument === document ||
+          !document.querySelector('script[src="assets/offline_reader.js"]')) return false;
+      try { return !(view.wrappedJSObject || view).PaperLoomOffline; }
+      catch (_) { return true; }
+    };
+    if (!mustWait()) return Promise.resolve(true);
+    return new Promise(resolve => {
+      let timer, settled = false;
+      const finish = loaded => {
+        if (settled) return;
+        settled = true;
+        try {
+          document.removeEventListener("DOMContentLoaded", loadedEvent);
+          view.removeEventListener?.("pagehide", cancel);
+          if (timer) view.clearTimeout(timer);
+        } finally {
+          if (this.cancelDocumentReady === cancel) this.cancelDocumentReady = null;
+          resolve(loaded);
+        }
+      };
+      const loadedEvent = () => { this.loadedDocument = document; finish(true); };
+      const cancel = () => finish(false);
+      this.cancelDocumentReady = cancel;
+      document.addEventListener("DOMContentLoaded", loadedEvent, { once: true });
+      view.addEventListener?.("pagehide", cancel, { once: true });
+      timer = view.setTimeout(() => finish(false), 10000);
+      if (!mustWait()) loadedEvent();
+    });
+  }
+  scheduleConnect() {
+    if (this.retryTimer || this.destroyed) return;
+    const delays = [100, 250, 500, 1000, 2000];
+    const attempt = this.attempts || 0;
+    if (attempt >= delays.length) {
+      this.bridgeState("error", new Error("阅读器连接未完成，请关闭当前阅读标签页后重新打开"));
+      return;
+    }
+    this.attempts = attempt + 1;
+    this.retryTimer = this.contentWindow.setTimeout(() => {
+      this.retryTimer = null; this.connect();
+    }, delays[attempt]);
+  }
+  cancelRetry() {
+    if (this.retryTimer) this.contentWindow.clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+  }
+  bridgeState(state, error) {
+    if (!this.document.body) return;
+    this.document.body.dataset.readerBridgeState = state;
+    if (error) this.document.body.dataset.readerBridgeError = error.message || String(error);
+    else delete this.document.body.dataset.readerBridgeError;
+    if (state === "error") this.report(error);
+  }
+  report(error) { console.error("[PaperLoom saved-reader bridge]", error?.message || String(error)); }
+  didDestroy() {
+    this.destroyed = true;
+    try { this.cancelDocumentReady?.(); this.cancelRetry(); } catch (_) { /* The content global was already disposed. */ }
+  }
+  result(value, document = this.document) {
     // Saving an edit replaces the browser before its action promise resolves.
     // A response to that departed page is no longer needed.
     try {
+      if (this.destroyed || this.document !== document) return;
       const view = this.contentWindow;
-      this.document.dispatchEvent(new view.CustomEvent("PaperLoomActionResult", { detail: JSON.stringify(value) }));
+      document.dispatchEvent(new view.CustomEvent("PaperLoomActionResult", { detail: JSON.stringify(value) }));
     } catch (_) {}
   }
   applyStyle(css) {
@@ -66,6 +168,7 @@ export class PaperLoomReaderChild extends JSWindowActorChild {
       text:node.dataset.sourceText||copy?.textContent||'',type:node.dataset.blockType};
   }
   receiveMessage(message) {
+    if (message.name === "reader-connect") { this.attempts = 0; return this.connect(); }
     if (!this.document.body) return null;
     if (message.name === "editor-command") {
       const editor = this.contentWindow.wrappedJSObject.PaperLoomEditor;

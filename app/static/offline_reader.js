@@ -3,20 +3,53 @@
   "use strict";
   const body = document.body;
   let sequence = 0;
+  let active = true, mathObserver;
   const requests = new Map();
   document.addEventListener("PaperLoomActionResult", event => {
-    const result = JSON.parse(event.detail);
+    let result;
+    try { result = JSON.parse(event.detail); } catch (_) { return; }
     const pending = requests.get(result.id);
-    if (pending) { requests.delete(result.id); result.error ? pending.reject(new Error(result.error)) : pending.resolve(result.value); }
+    if (pending) { requests.delete(result.id); clearTimeout(pending.timer); result.error ? pending.reject(new Error(result.error)) : pending.resolve(result.value); }
   });
+  window.addEventListener("pagehide", () => {
+    active = false;
+    mathObserver?.disconnect();
+    for (const pending of requests.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error("阅读页面已经关闭"));
+    }
+    requests.clear();
+  });
+  async function bridgeAvailable() {
+    if (body.dataset.zoteroBridge === "true") return true;
+    // The actor may load before its parent frame callbacks are installed. Ask
+    // for a fresh handshake rather than permanently falling back after a race.
+    document.dispatchEvent(new CustomEvent("PaperLoomReaderConnect", { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const deadline = Date.now() + 5000;
+    while (body.dataset.readerBridgeState && Date.now() < deadline) {
+      if (body.dataset.zoteroBridge === "true") return true;
+      if (body.dataset.readerBridgeState === "error") break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    if (body.dataset.readerBridgeState) {
+      throw new Error(body.dataset.readerBridgeError || "阅读器连接未完成，请重新打开当前 OCR／译文页面");
+    }
+    return false; // A saved page also remains usable in an ordinary browser.
+  }
   async function action(data) {
-    if (body.dataset.zoteroBridge === "true") {
+    if (await bridgeAvailable()) {
       const id = ++sequence;
       return new Promise((resolve, reject) => {
-        requests.set(id, { resolve, reject });
+        const timer = setTimeout(() => {
+          requests.delete(id);
+          reject(new Error("阅读器操作超时，请重新打开当前 OCR／译文页面后重试"));
+        }, data.type === "save-ocr-edits" ? 120000 : 30000);
+        requests.set(id, { resolve, reject, timer });
         document.dispatchEvent(new CustomEvent("PaperLoomAction", { bubbles: true, detail: JSON.stringify({ id, ...data }) }));
       });
     }
+    if (data.type === "locate") throw new Error("请在 Zotero 的 OCR 阅读窗口中使用原文对照");
     if (data.type === "copy-latex") {
       const area = document.createElement("textarea");
       area.value = data.text; document.body.append(area); area.select();
@@ -56,10 +89,40 @@
       select(section).catch(error => { document.getElementById("pl-status").textContent = error.message; });
     });
   }
-  for (const math of document.querySelectorAll("[data-latex]")) {
-    button(math, "复制 LaTeX", async () => {
-      await action({ type: "copy-latex", text: math.dataset.latex });
-    }, "copy-latex").classList.add("pl-math-copy");
+  function refreshMathControls() {
+    if (!active) return;
+    for (const math of document.querySelectorAll("[data-latex]")) {
+      if (math.querySelector('button[data-action="copy-latex"]')) continue;
+      button(math, "复制 LaTeX", async () => {
+        await action({ type: "copy-latex", text: math.dataset.latex });
+      }, "copy-latex").classList.add("pl-math-copy");
+    }
+  }
+  // MathJax startup is asynchronous even when its script uses defer. A first
+  // typeset can replace the formula's children after our controls were added.
+  // Install immediately for plain HTML, then verify after that first typeset.
+  refreshMathControls();
+  body.dataset.mathControlsReady = "false";
+  const mathControlsReady = Promise.resolve().then(() => window.MathJax?.startup?.promise)
+    .catch(error => { body.dataset.mathControlsError = error.message || String(error); })
+    .then(() => {
+      if (!active) return;
+      refreshMathControls();
+      body.dataset.mathControlsReady = "true";
+    });
+  if (typeof MutationObserver !== "undefined") {
+    let scheduled = false;
+    const contains = (node, selector) => node.nodeType === 1 && (node.matches?.(selector) || node.querySelector?.(selector));
+    mathObserver = new MutationObserver(records => {
+      // Only react to new formula containers or removed copy controls, not to
+      // every glyph MathJax emits (nor to our own button insertion).
+      if (scheduled || !records.some(record =>
+        Array.from(record.addedNodes).some(node => contains(node, "[data-latex]")) ||
+        Array.from(record.removedNodes).some(node => contains(node, 'button[data-action="copy-latex"]')))) return;
+      scheduled = true;
+      Promise.resolve().then(() => { scheduled = false; refreshMathControls(); });
+    });
+    mathObserver.observe(document.querySelector("main") || body, { childList: true, subtree: true });
   }
   const tables = Array.from(document.querySelectorAll(".pl-target table"));
   const items = () => tables.map((table, i) => ({ name: `表${i + 1}`, rows: PaperLoomExcel.tableRows(table) }));
@@ -71,5 +134,5 @@
       action({ type: "translation-mode", mode: node.dataset.translationMode }).catch(() => {});
     });
   }
-  window.PaperLoomOffline = { select, action };
+  window.PaperLoomOffline = { select, action, refreshMathControls, mathControlsReady };
 })();

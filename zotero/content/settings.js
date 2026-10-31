@@ -1,6 +1,7 @@
 "use strict";
 window.addEventListener("DOMContentLoaded", async () => {
   const PL = window.arguments[0].wrappedJSObject.controller;
+  window.document.title = `${PL.name} ${PL.version || ""} 设置`;
   const $ = id => window.document.getElementById(id);
   const status = text => { $("status").textContent = text; };
   const local = () => ({

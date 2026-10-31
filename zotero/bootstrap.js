@@ -50,10 +50,13 @@ async function startup({ id, rootURI } = {}) {
   PaperLoom.rootURI = rootURI;
   Services.scriptloader.loadSubScript(rootURI + "content/table-excel.js", globalThis, "UTF-8");
   PaperLoom.Excel = globalThis.PaperLoomExcel;
-  for (const name of ["runtime", "store", "service", "artifacts", "editing", "appearance", "tasks", "batch-picker", "source-regions", "comparison", "reader", "ui"]) {
+  for (const name of ["runtime", "store", "service", "artifacts", "editing", "appearance", "tasks", "batch-picker",
+    "source-regions", "pdf-context", "pdf-regions", "pdf-highlight", "comparison", "reader-layout", "reader-presentation",
+    "reader-panel", "reader-actions", "reader-session", "reader", "ui"]) {
     Services.scriptloader.loadSubScript(rootURI + `modules/${name}.js`, globalThis, "UTF-8");
   }
   PaperLoom.config = JSON.parse(await Zotero.File.getResourceAsync(rootURI + "config.json"));
+  PaperLoom.version = JSON.parse(await Zotero.File.getResourceAsync(rootURI + "manifest.json")).version;
   PaperLoom.readerStyle = await Zotero.File.getResourceAsync(rootURI + "content/reader.css");
   PaperLoom.chrome = Cc["@mozilla.org/addons/addon-manager-startup;1"].getService(Ci.amIAddonManagerStartup)
     .registerChrome(Services.io.newURI(rootURI + "manifest.json"), [["content", "paperloom", "content/"]]);

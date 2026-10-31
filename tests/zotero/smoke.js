@@ -58,6 +58,13 @@ startup = async function (...args) {
       } finally {
         Services.env.set("LOCALAPPDATA",oldLocalAppData);PL.config.runtimeDirectory=oldRuntimeDirectory;PL.config.projectRoot=oldProjectRoot;
       }
+      // Editor workers and the fake API must use the same disposable cache.
+      // Runtime resolution otherwise falls back to the developer workspace.
+      const resolveRuntime=PL.Runtime.resolve.bind(PL.Runtime);
+      PL.Runtime.resolve=async()=>{
+        const runtime=await resolveRuntime();
+        return {...runtime,environment:{...runtime?.environment,PAPERBRIDGE_WORKSPACE:smokeWorkspacePath}};
+      };
       PL.UI.addWindow(window);
       check(!!window.document.getElementById("paperloom-item-menu"),"item OCR and translation commands");
       const translationMenu=Array.from(window.document.getElementById("paperloom-item-menu").querySelectorAll("menuitem")).map(node=>node.getAttribute("label"));
@@ -131,6 +138,13 @@ startup = async function (...args) {
       await waitFor(()=>PL.pref("blockCompare",false)&&focusButton.textContent==="关闭段落高亮");
       const ocrLayout=(await ocrOnlyActor.sendQuery("state")).layout;
       check(ocrLayout.compactStyle&&ocrLayout.gap>=0&&ocrLayout.gap<20,"new OCR paragraphs use compact spacing while retaining separate clickable blocks");
+      const compatibility=await ocrOnlyActor.sendQuery("brand-contract");
+      check(compatibility.oldActorRecognizes&&compatibility.protocol==="paperloom.saved-reader/1",
+        "new exports retain the old-client handshake marker alongside an independent protocol");
+      await ocrOnlyActor.sendQuery("brand-contract",{rename:true});
+      await PL.ReaderUI.readerActor(ocrOnlyState.frame.browsingContext.currentWindowGlobal).sendQuery("reader-connect");
+      await waitFor(async()=>{report.readerRuntime=await ocrOnlyActor.sendQuery("state");return report.readerRuntime.bridge==="true"&&report.readerRuntime.mathCopyButtons>0;});
+      check(!(await ocrOnlyActor.sendQuery("brand-contract")).oldActorRecognizes,"native reader reconnects after visible brand and legacy label are removed");
       await ocrOnlyActor.sendQuery("click",{selector:'main .pl-target [data-latex] [data-action="copy-latex"]'});
       await waitFor(()=>clipboardText().includes("E=mc^2"));
       check(!await PL.Store.saved(pdf,"translate"),"OCR-only formula copies raw LaTeX before a translation has ever existed");
@@ -734,10 +748,40 @@ startup = async function (...args) {
         await oldActor.sendQuery("click",{selector:'.pl-block[data-block-type="paragraph"] [data-action="locate"]'});
         await waitFor(()=>actualState.mode==="split");
         check(true,"older saved pages retain the explicit Compare PDF button without regenerating them");
-        await PL.Editing.open(actualReader);
-        const legacyEditor=await actualState.frame.browsingContext.currentWindowGlobal.getActor("PaperLoomSmoke").sendQuery("editor-state");
-        check(legacyEditor.fields>200,"previously saved real paper gains block editing without another OCR pass");
-        await PL.ReaderUI.readerActor(actualState.frame.browsingContext.currentWindowGlobal).sendQuery("editor-command",{command:"cancel"});
+        if(smokeRealSourceMatches){
+          await PL.Editing.open(actualReader);
+          const legacyEditor=await actualState.frame.browsingContext.currentWindowGlobal.getActor("PaperLoomSmoke").sendQuery("editor-state");
+          check(legacyEditor.fields>200,"previously saved real paper gains block editing without another OCR pass");
+          await PL.ReaderUI.readerActor(actualState.frame.browsingContext.currentWindowGlobal).sendQuery("editor-command",{command:"cancel"});
+        }else{
+          let mismatch;
+          try{await PL.Editing.open(actualReader);}catch(error){mismatch=error;}
+          check(mismatch?.message.includes("OCR 源版本已不在本机")
+            &&(await PL.Store.saved(actualPDF,"ocr")).attachmentID===actual.attachmentID,
+            "legacy real OCR refuses a mismatched newer source cache without replacing its saved attachment");
+        }
+        // A frozen, matching real-paper cache still exercises all legacy
+        // migration controls, independently of the historical render fixture.
+        const migration=smokeLegacyMigration;
+        const migrationParent=new Zotero.Item("journalArticle");
+        migrationParent.setField("title","Isolated real paper legacy editing fixture");await migrationParent.saveTx();
+        const migrationPDF=await Zotero.Attachments.importFromFile({file:migration.pdf,parentItemID:migrationParent.id,contentType:"application/pdf",title:"Real paper legacy editing PDF"});
+        const migrationTemp=Zotero.getTempDirectory();migrationTemp.append("paperloom-legacy-migration");migrationTemp.createUnique(Ci.nsIFile.DIRECTORY_TYPE,0o700);
+        try{
+          await PL.Artifacts.extract(migration.bundle,migrationTemp.path,"ocr");
+          await PL.Artifacts.save(migrationPDF,"ocr",await Zotero.Utilities.Internal.md5Async(Zotero.File.pathToFile(await migrationPDF.getFilePathAsync())),migration.manifest,migrationTemp.path,"zh");
+        }finally{await IOUtils.remove(migrationTemp.path,{recursive:true,ignoreAbsent:true});}
+        const migrationReader=await PL.ReaderUI.open(migrationPDF);
+        await PL.ReaderUI.setMode(migrationReader,"split");
+        const migrationBefore=await PL.request("GET","/api/testing/calls");
+        await PL.Editing.open(migrationReader);
+        const migrationState=PL.ReaderUI.states.get(migrationReader);
+        const legacyEditor=await migrationState.frame.browsingContext.currentWindowGlobal.getActor("PaperLoomSmoke").sendQuery("editor-state");
+        const migrationAfter=await PL.request("GET","/api/testing/calls");
+        check(legacyEditor.fields>200&&migrationBefore.ocr===migrationAfter.ocr&&migrationBefore.llm===migrationAfter.llm,
+          "matching isolated real-paper legacy source gains over 200 editing fields without OCR or translation");
+        await PL.ReaderUI.readerActor(migrationState.frame.browsingContext.currentWindowGlobal).sendQuery("editor-command",{command:"cancel"});
+        window.Zotero_Tabs.select(actualReader.tabID);
         const actor=actualState.frame.browsingContext.currentWindowGlobal.getActor("PaperLoomSmoke");
         await actor.sendQuery("scroll",{kind:"figure"});
         await screenshot(window,smokeActualFigureScreenshotPath);

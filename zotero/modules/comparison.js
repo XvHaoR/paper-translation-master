@@ -1,95 +1,91 @@
 "use strict";
 (() => {
   const PL = PaperLoom;
-  // PDF coordinates and selection are independent of reading styles and fonts.
+  // Coordinate recovery, native PDF access and drawing have separate modules.
+  // This controller only owns the lifetime of bidirectional navigation requests.
   PL.Comparison = {
     bind(state) {
-      const doc = state.reader._internalReader?._primaryView?._iframeWindow?.document;
+      const doc = PL.PDFContext.current(state).doc;
       if (!doc || state.pdfDoc === doc) return;
-      if (state.pdfDoc) state.pdfDoc.removeEventListener("click", state.pdfClick, true);
+      state.pdfDoc?.removeEventListener("click", state.pdfClick, true);
       state.pdfDoc = doc;
       state.pdfClick = async event => {
-        if (state.mode !== "split" || !state.saved) return;
+        if (!PL.alive || state.mode !== "split" || !state.saved || state.pdfDoc !== doc
+          || (event.button !== undefined && event.button !== 0)) return;
         const page = event.target.closest?.(".page");
-        if (!page || !doc.defaultView.getSelection().isCollapsed) return;
+        if (!page || doc.defaultView.getSelection()?.isCollapsed === false) return;
         const bounds = page.getBoundingClientRect();
-        const frame = state.frame;
-        try {
-          const point = {
-            page: Number(page.dataset.pageNumber), x: (event.clientX - bounds.left) / bounds.width, y: (event.clientY - bounds.top) / bounds.height,
-          };
-          let block = await PL.ReaderUI.readerActor(frame.browsingContext.currentWindowGlobal).sendQuery("locate-point", point);
-          if (!block) {
-            block = await PL.SourceRegions.find(state, point);
-            if (block && state.frame === frame) await PL.ReaderUI.readerActor(frame.browsingContext.currentWindowGlobal).sendQuery("select-block", {id:block.block});
+        if (!(bounds.width > 0 && bounds.height > 0)) return;
+        const point = { page: Number(page.dataset.pageNumber),
+          x: (event.clientX - bounds.left) / bounds.width, y: (event.clientY - bounds.top) / bounds.height };
+        if (!Number.isInteger(point.page) || point.page < 1
+          || ![point.x,point.y].every(value => Number.isFinite(value) && value >= 0 && value <= 1)) return;
+        const frame = state.frame, global = frame?.browsingContext?.currentWindowGlobal;
+        const context = PL.PDFContext.current(state);
+        const request = state.pdfClickRequest = state.locationRequest = Symbol("pdf-click");
+        const current = () => PL.alive && state.saved && state.mode === "split" && state.frame === frame
+          && state.pdfDoc === doc && state.pdfClickRequest === request && state.locationRequest === request
+          && context.doc === doc && PL.PDFContext.same(state, context)
+          && frame?.browsingContext?.currentWindowGlobal === global;
+        let block;
+        try { block = await PL.ReaderUI.readerActor(global).sendQuery("locate-point", point); }
+        catch (error) { if (current()) Zotero.logError(error); }
+        if (!current()) return;
+        if (!block) {
+          try { block = await PL.SourceRegions.find(state, point); }
+          catch (error) { if (current()) Zotero.logError(error); }
+          if (block && current()) {
+            try { await PL.ReaderUI.readerActor(global).sendQuery("select-block", { id: block.block }); }
+            catch (error) { if (current()) Zotero.logError(error); }
           }
-          if (block && state.frame === frame && state.mode === "split") await this.locate(state, block, false);
         }
-        catch (error) { Zotero.logError(error); }
+        if (block && current()) {
+          try { await this.locate(state, block, false); }
+          catch (error) {
+            if (state.frame === frame && state.pdfDoc === doc) Zotero.logError(error);
+          }
+        }
       };
-      // Native PDF handlers may stop bubbling after selecting text/annotations.
-      // Observe the click without depending on their bubble-phase behavior.
+      // Observe before the native PDF handlers stop bubbling after selection.
       doc.addEventListener("click", state.pdfClick, true);
     },
-    clear(state) {
-      for (const overlay of state.pdfHighlights || []) overlay.remove();
-      state.pdfHighlights = [];
-      state.pdfHighlight?.remove(); state.pdfHighlight = null;
-      state.pdfDoc?.querySelectorAll(".paperloom-dimmed-page").forEach(node => { node.style.opacity = ""; node.classList.remove("paperloom-dimmed-page"); });
+    clear(state) { PL.PDFHighlight.clear(state); },
+    unbind(state) {
+      state.locationRequest = Symbol("disposed"); state.pdfClickRequest = Symbol("disposed");
+      state.pdfDoc?.removeEventListener("click", state.pdfClick, true);
+      this.clear(state); state.pdfDoc = null; state.pdfClick = null;
     },
     async locate(state, data, navigate = true) {
-      const frame = state.frame;
+      const frame = state.frame, global = frame?.browsingContext?.currentWindowGlobal;
       const request = state.locationRequest = Symbol("locate");
-      await PL.ReaderUI.ready(state.reader);
-      if (!PL.alive || state.frame !== frame || !state.saved) return false;
-      const view = state.reader._internalReader._primaryView;
-      const app = view._iframeWindow.PDFViewerApplication;
-      const pageIndex = Number(data.page) - 1;
-      if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= app.pdfDocument.numPages) throw new Error("该段落没有有效 PDF 页码");
-      const bbox = Array.isArray(data.bbox) ? data.bbox.map(Number) : [];
-      const valid = bbox.length === 4 && bbox.every(value => Number.isFinite(value) && value >= 0 && value <= 1) && bbox[2] > bbox[0] && bbox[3] > bbox[1];
-      const regions=valid ? await PL.SourceRegions.resolve(state,{...data,page:pageIndex+1,bbox}) : [];
-      if (state.frame !== frame || state.locationRequest !== request) return false;
+      const currentFrame = () => PL.alive && state.saved && state.frame === frame && !!frame
+        && state.mode === "split" && state.locationRequest === request
+        && frame.browsingContext?.currentWindowGlobal === global;
+      const context = await PL.PDFContext.ready(state);
+      const current = () => currentFrame() && PL.PDFContext.same(state, context);
+      if (!current()) return false;
+      const page = Number(data?.page), pageIndex = page - 1;
+      if (!Number.isInteger(page) || page < 1 || page > context.pdf.numPages) throw new Error("该段落没有有效 PDF 页码");
+      const regions = await PL.PDFRegions.resolve(state, { ...data, page }, context.pdf.numPages);
+      if (!current()) return false;
       if (navigate) {
-        const boxes=regions.filter(region=>region.page===pageIndex+1);
-        if (boxes.length) {
-          const viewport=app.pdfViewer.getPageView(pageIndex)?.viewport || PL.SourceRegions.viewport(await app.pdfDocument.getPage(pageIndex+1));
-          const rects=boxes.map(region=>{
-            const first=viewport.convertToPdfPoint(region.bbox[0]*viewport.width,region.bbox[1]*viewport.height);
-            const second=viewport.convertToPdfPoint(region.bbox[2]*viewport.width,region.bbox[3]*viewport.height);
-            return [Math.min(first[0],second[0]),Math.min(first[1],second[1]),Math.max(first[0],second[0]),Math.max(first[1],second[1])];
-          });
-          await state.reader.navigate({position:{pageIndex,rects}});
-        }
-        else await state.reader.navigate({pageIndex});
+        const rects = await PL.PDFRegions.rects(context, page, regions);
+        if (!current()) return false;
+        // A native navigation already in flight cannot be cancelled. Queue the
+        // newest navigation after it, while skipping all obsolete queued ones.
+        const navigation = Promise.resolve(state.pdfNavigation).catch(() => {}).then(async () => {
+          if (!current()) return;
+          await state.reader.navigate(rects.length ? { position: { pageIndex, rects } } : { pageIndex });
+        });
+        state.pdfNavigation = navigation;
+        await navigation;
       }
-      if (state.frame !== frame || state.locationRequest !== request) return false;
-      this.bind(state); this.clear(state);
-      if (regions.length && PL.pref("blockCompare",true)) {
-        const doc=view._iframeWindow.document;
-        const pageNumbers=new Set(regions.map(region=>region.page));
-        for (const number of pageNumbers) {
-          const page=app.pdfViewer.getPageView(number-1);
-          if (!page?.div) continue;
-          const boxes=regions.filter(region=>region.page===number).map(region=>region.bbox);
-          const svg=doc.createElementNS("http://www.w3.org/2000/svg","svg");
-          svg.setAttribute("viewBox","0 0 1 1");svg.setAttribute("preserveAspectRatio","none");
-          svg.classList.add("paperloom-pdf-highlight");
-          svg.style.cssText="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1000";
-          const mask=doc.createElementNS(svg.namespaceURI,"path");
-          mask.setAttribute("d","M0 0H1V1H0Z "+boxes.map(([x0,y0,x1,y1])=>`M${x0} ${y0}H${x1}V${y1}H${x0}Z`).join(" "));
-          mask.setAttribute("fill-rule","evenodd");mask.setAttribute("fill","rgba(255,255,255,.72)");svg.append(mask);
-          for (const [x0,y0,x1,y1] of boxes) {
-            const rect=doc.createElementNS(svg.namespaceURI,"rect");
-            for(const [name,value] of Object.entries({x:x0,y:y0,width:x1-x0,height:y1-y0,fill:"none",stroke:"#6264ff","stroke-width":.003})) rect.setAttribute(name,String(value));
-            svg.append(rect);
-          }
-          page.div.append(svg);state.pdfHighlights.push(svg);
-        }
-        state.pdfHighlight=state.pdfHighlights[0]||null;
-        doc.querySelectorAll(".page").forEach(node=>{if(!pageNumbers.has(Number(node.dataset.pageNumber))){node.classList.add("paperloom-dimmed-page");node.style.opacity=".3";}});
-      }
-      state.lastLocated={block:data.block,page:pageIndex+1,bbox,regions};
+      if (!current()) return false;
+      this.bind(state);
+      state.lastLocated = { block: data.block, page, bbox: PL.PDFRegions.box(data.bbox) || [], regions };
+      // Presentation failures must not discard a completed source navigation.
+      try { PL.PDFHighlight.render(state, context, regions); }
+      catch (error) { Zotero.logError(error); }
       return state.lastLocated;
     },
   };
