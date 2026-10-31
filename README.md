@@ -1,3 +1,5 @@
+# 可能是最好的Zotero翻译插件
+
 # 论文翻译大师
 
 在 Zotero 中选择论文，进行 OCR，生成可编辑的 Markdown，再按需使用大模型翻译。
@@ -16,16 +18,24 @@
 
 ## 功能
 
-- 在弹窗里勾选论文，批量 OCR、批量翻译；可按标题、作者、年份筛选，只选未完成的论文。
-- 在文献列表显示独立的 OCR、翻译状态；可选择新添加的文献自动 OCR，翻译由用户手动触发。
-- 在原生 PDF 阅读器中并排查看 PDF 与 OCR／译文，双向定位段落；也可只查看 OCR 或译文。
-- 逐段双语、仅译文两种模式，可调字号，以及 OCR／译文各自的字体与颜色。
-- 复制公式 LaTeX、表格导出 Excel、导出 Markdown；保留图片、公式和表格。
-- 直接编辑 OCR 的 Markdown、调整标题和内容类型、删除多余图片；翻译使用校正后的 OCR。
-- 清除 OCR、删除当前语言译文，保留源 PDF；已有结果可继续使用。
-- 批量任务在后台排队，完成后不会自动打开文章标签页。模型在同一会话中复用，关闭 Zotero 后清理由插件启动的进程。
+### 基于PaddleOCR-VL-1.6识别论文，将其转换为Markdown格式，并可手动编辑
+<img width="2560" height="1380" alt="ad83ba8e7c8d211df8430f5a82c27d8d" src="https://github.com/user-attachments/assets/85ca4bdc-715e-4100-8b93-e84bb5876138" />
 
-OCR 基于 PaddleOCR-VL-1.6，翻译通过用户配置的大模型接口执行。识别与翻译结果仍需结合原文核对。
+### 基于大模型翻译论文，支持对照阅读和纯翻译模式
+<img width="2560" height="1380" alt="e216e48da1ee99805035cacb299e60e3" src="https://github.com/user-attachments/assets/2cc0ce8d-c6c4-408f-84d7-c8ed52437bef" />
+<img width="2560" height="1380" alt="e57e25ff5c9cf0ff0d96e4d0c192daf1" src="https://github.com/user-attachments/assets/0c906b57-8a15-44ec-9c27-b1e6a11fc648" />
+
+### 论文公式可导出为Latex格式
+<img width="2560" height="1380" alt="950e7f080bd5b058fcd57cde56d83286" src="https://github.com/user-attachments/assets/7938297b-d578-4de4-abb2-378cd8f4b524" />
+
+### 论文表格可导出为Excel表格
+<img width="2560" height="1380" alt="b83cdb3d9511838fdd6410c2688b111f" src="https://github.com/user-attachments/assets/7e7b9c29-a745-4371-b6d6-d5c28edf7bfb" />
+
+### 支持批量OCR和翻译
+<img width="1325" height="959" alt="image" src="https://github.com/user-attachments/assets/06b80cbf-86fa-4310-9e54-be14c8114e0a" />
+
+### 论文OCR结果与翻译文本持久留存，不需要重复识别和翻译。本地运行，实测3060 12G 30页论文OCR耗时<60s
+
 
 ## 支持范围
 
@@ -39,11 +49,6 @@ OCR 基于 PaddleOCR-VL-1.6，翻译通过用户配置的大模型接口执行�
 
 首版一键安装器为预览功能。已验证打包、硬件检查、下载校验和失败重试逻辑；全新 Windows GPU 环境的完整安装仍需进一步验收。不承诺所有显卡、网络条件和论文均有相同性能。
 
-## 从旧版本升级
-
-本项目原名 PaperLoom。新名称为「论文翻译大师」，保留旧插件 ID、设置与附件标签，避免已有 OCR 和译文失联。在 Zotero 插件管理器中安装新版 XPI 替换旧版，再重启 Zotero；无需重新 OCR。
-
-原私有仓库不随此公开版本发布。此仓库只包含经筛选的源码、自制测试文档、许可证与构建脚本，不包含用户论文、翻译缓存、模型权重或 API 密钥。
 
 ## 开发
 
