@@ -306,7 +306,7 @@ def test_server_documents_api(native_pdf, workspace):
     # 阅读页
     r = client.get(f"/documents/{doc['id']}/")
     assert r.status_code == 200
-    assert "PaperLoom" in r.text
+    assert "论文翻译大师" in r.text
 
     # 资源防穿越
     r = client.get(f"/documents/{doc['id']}/../../config.py")
