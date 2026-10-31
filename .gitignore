@@ -1,0 +1,30 @@
+# Python/runtime artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+
+# Local documents, model results, logs and benchmarks
+workspace/
+benchmark/
+tmp/
+log/
+*.pid
+scripts/launcher.lock
+
+# Generated application packages
+extension/dist/
+zotero/dist/
+build/
+dist/
+*.egg-info/
+*.exe
+
+# Local environment and editor files
+.venv/
+.env
+.idea/
+.vscode/
+
+# 
+测试截图/

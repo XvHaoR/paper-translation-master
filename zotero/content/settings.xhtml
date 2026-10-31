@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
+<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+        xmlns:html="http://www.w3.org/1999/xhtml" title="论文翻译大师设置" width="660" height="720">
+  <script src="chrome://paperloom/content/settings.js"/>
+  <html:style>
+    :root{color-scheme:light dark} body, .settings{font:14px/1.6 system-ui;color:inherit}
+    .settings{padding:22px;overflow:auto;max-height:calc(100vh - 44px)}h2{font-size:16px;margin:18px 0 10px}
+    .field{display:grid;grid-template-columns:125px 1fr;gap:10px;align-items:center;margin:9px 0}
+    input:not([type=checkbox]),select{box-sizing:border-box;width:100%;font:inherit;padding:6px;border:1px solid #8885;border-radius:4px;background:transparent;color:inherit}
+    button{font:inherit;padding:6px 12px;border:1px solid #8885;border-radius:4px;cursor:pointer;background:transparent;color:inherit}
+    .hint{font-size:12px;opacity:.75;margin:6px 0}.row{display:flex;gap:8px;align-items:center}.row input{flex:1}
+    #status{white-space:pre-wrap;min-height:24px;font-size:13px;margin:12px 0}.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+    hr{border:0;border-top:1px solid #8884;margin:18px 0}
+  </html:style>
+  <html:div class="settings">
+    <html:h2>处理方式</html:h2>
+    <html:label><html:input id="autoOCR" type="checkbox"/> 新文献添加后自动 OCR</html:label>
+    <html:p class="hint">仅处理之后添加且已下载的 PDF。翻译始终由你手动选择。</html:p>
+    <html:label class="field">目标语言<html:input id="language" value="zh" placeholder="zh / en / zh-TW"/></html:label>
+    <html:hr/>
+    <html:h2>阅读字体与颜色</html:h2>
+    <html:p class="hint">OCR 原文和译文分别设置。留空使用系统字体；自动颜色跟随明暗主题。保存后立即应用于已打开的阅读窗口，无需启动 OCR。</html:p>
+    <html:datalist id="readerFonts">
+      <html:option value="Microsoft YaHei"/><html:option value="SimSun"/><html:option value="SimHei"/>
+      <html:option value="Times New Roman"/><html:option value="Georgia"/><html:option value="Arial"/>
+      <html:option value="Segoe UI"/><html:option value="Noto Serif CJK SC"/>
+    </html:datalist>
+    <html:label class="field">OCR 字体<html:input id="ocrFontFamily" list="readerFonts" placeholder="系统默认，或输入已安装的字体名"/></html:label>
+    <html:div class="field"><html:span>OCR 文字颜色</html:span><html:div class="row"><html:input id="ocrTextColor" type="color"/><html:label><html:input id="ocrColorAuto" type="checkbox"/> 自动</html:label></html:div></html:div>
+    <html:label class="field">译文字体<html:input id="translationFontFamily" list="readerFonts" placeholder="系统默认，或输入已安装的字体名"/></html:label>
+    <html:div class="field"><html:span>译文文字颜色</html:span><html:div class="row"><html:input id="translationTextColor" type="color"/><html:label><html:input id="translationColorAuto" type="checkbox"/> 自动</html:label></html:div></html:div>
+    <html:div class="row"><html:button id="saveAppearance">保存阅读外观</html:button><html:button id="resetAppearance">恢复默认外观</html:button></html:div>
+    <html:hr/>
+    <html:h2>本地 OCR 引擎</html:h2>
+    <html:p class="hint">首次使用：下载安装器并运行。安装成功后自动识别运行环境，无需手填 Python 和项目路径。Windows 一键版需要 NVIDIA 显卡，其他平台请参考源码安装说明。</html:p>
+    <html:div class="row"><html:button id="downloadEngine">下载 OCR 安装器</html:button><html:button id="detectEngine">检测已安装引擎</html:button></html:div>
+    <html:p id="engineStatus" class="hint" role="status" aria-live="polite"/>
+    <html:p class="hint">在 Zotero 工具栏点击启动，或处理文献时按需启动。关闭 Zotero 后自动释放由插件启动的服务。</html:p>
+    <html:label class="field">运行方式<html:select id="backend"><html:option value="wsl">WSL FastDeploy（本机已配置）</html:option><html:option value="local">本机 Python OCR</html:option></html:select></html:label>
+    <html:label class="field">项目目录<html:div class="row"><html:input id="projectRoot"/><html:button id="chooseRoot">选择…</html:button></html:div></html:label>
+    <html:label class="field">Python 路径<html:input id="pythonPath" placeholder="留空自动查找 OCR 环境"/></html:label>
+    <html:label class="field">本地服务地址<html:input id="serviceURL" placeholder="http://127.0.0.1:8765"/></html:label>
+    <html:hr/>
+    <html:h2>翻译服务</html:h2>
+    <html:p class="hint">兼容 OpenAI 接口，可使用本地模型或云端服务。OCR 不需要翻译密钥。</html:p>
+    <html:label class="field">接口地址<html:input id="llm_base_url" placeholder="https://api.deepseek.com/v1"/></html:label>
+    <html:label class="field">模型<html:input id="llm_model" placeholder="填写服务商提供的模型名"/></html:label>
+    <html:label class="field">API 密钥<html:input id="llm_api_key" type="password" placeholder="留空保留现有密钥"/></html:label>
+    <html:label><html:input id="clearKey" type="checkbox"/> 清除已保存的密钥（使用无密钥本地服务时）</html:label>
+    <html:div class="row"><html:button id="loadModel">启动并读取翻译配置</html:button><html:button id="saveModel">保存翻译配置</html:button><html:button id="testModel">测试连接</html:button></html:div>
+    <html:div id="status" role="status" aria-live="polite"/>
+    <html:div class="actions"><html:button id="saveLocal">保存设置</html:button><html:button id="close">关闭</html:button></html:div>
+  </html:div>
+</window>

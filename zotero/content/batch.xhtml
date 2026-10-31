@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
+<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+        xmlns:html="http://www.w3.org/1999/xhtml" title="选择要处理的论文" width="1060" height="740">
+  <script src="chrome://paperloom/content/batch.js"/>
+  <html:style>
+    :root{color-scheme:light dark}.batch{display:flex;flex-direction:column;height:calc(100vh - 36px);padding:18px;gap:12px;font:13px/1.5 system-ui;color:CanvasText;box-sizing:border-box}
+    h1{font-size:18px;margin:0}.hint{font-size:12px;opacity:.75;margin:3px 0 0}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    button,select,input[type=search]{font:inherit;background:Canvas;color:CanvasText;border:1px solid #8885;border-radius:4px;padding:5px 9px}button{cursor:pointer}button:disabled{opacity:.5;cursor:default}
+    input[type=search]{min-width:190px;flex:1}input[type=checkbox]{accent-color:#3875d7}.list{min-height:150px;flex:1;overflow:auto;border:1px solid #8885;border-radius:5px}
+    table{width:100%;border-collapse:collapse;table-layout:fixed}thead{position:sticky;top:0;background:Canvas;z-index:1}th{text-align:left;font-weight:600;border-bottom:1px solid #8885}td,th{padding:8px 7px}td{border-bottom:1px solid #8882;vertical-align:top}tr.checked{background:#3875d710}.check{width:30px}.author{width:120px}.state{width:115px}
+    .paper-title{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.paper-detail{font-size:11px;opacity:.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.unavailable{opacity:.6}
+    .footer{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.spacer{flex:1}#start{background:#3875d7;color:white;border-color:#3875d7}#notice{white-space:pre-wrap;min-height:20px;font-size:12px}#empty{padding:30px;text-align:center;opacity:.7}#forceRow[hidden]{display:none}
+  </html:style>
+  <html:div class="batch">
+    <html:div><html:h1>选择要处理的论文</html:h1><html:p class="hint">勾选后再开始，打开本窗口不会启动处理。任务在后台执行，完成后不自动打开文章。</html:p></html:div>
+    <html:div class="row">
+      <html:label>范围 <html:select id="scope"><html:option value="view">当前文献列表</html:option><html:option value="library">整个当前文献库</html:option></html:select></html:label>
+      <html:input id="search" type="search" placeholder="搜索论文标题、作者、年份" aria-label="搜索论文"/>
+      <html:label>操作 <html:select id="action"><html:option value="ocr">OCR 识别</html:option><html:option value="translate">翻译</html:option></html:select></html:label>
+    </html:div>
+    <html:div class="row">
+      <html:button id="selectFiltered">选中筛选结果</html:button><html:button id="selectPending">只选未完成</html:button><html:button id="clearSelection">清空勾选</html:button>
+      <html:label id="forceRow"><html:input id="force" type="checkbox"/> 强制重新 OCR（忽略已有结果）</html:label>
+      <html:span class="spacer"/><html:span id="selection" aria-live="polite"/>
+    </html:div>
+    <html:div class="list">
+      <html:table><html:thead><html:tr><html:th class="check"><html:input id="selectPage" type="checkbox" aria-label="选择本页论文"/></html:th><html:th>论文标题</html:th><html:th class="author">作者 / 年份</html:th><html:th class="state">OCR 状态</html:th><html:th class="state">翻译状态</html:th></html:tr></html:thead><html:tbody id="papers"/></html:table>
+      <html:div id="empty">正在加载论文列表…</html:div>
+    </html:div>
+    <html:div class="footer"><html:button id="previous">上一页</html:button><html:span id="pageInfo"/><html:button id="next">下一页</html:button><html:span class="spacer"/><html:span id="language"/></html:div>
+    <html:div id="notice" role="status" aria-live="polite"/>
+    <html:div class="footer"><html:span id="actionHint" class="hint"/><html:span class="spacer"/><html:button id="close">关闭</html:button><html:button id="start" disabled="true">开始 OCR</html:button></html:div>
+  </html:div>
+</window>

@@ -1,0 +1,14 @@
+{
+  "manifest_version": 2,
+  "name": "论文翻译大师",
+  "version": "0.3.0",
+  "description": "Zotero 内启动 OCR、管理识别和翻译状态、自动识别新文献，在 PDF 标签页对照阅读并离线保存。",
+  "applications": {
+    "zotero": {
+      "id": "paperloom@paperloom.local",
+      "update_url": "https://github.com/XvHaoR/paper-translation-master/releases/latest/download/updates.json",
+      "strict_min_version": "7.0",
+      "strict_max_version": "10.0.*"
+    }
+  }
+}

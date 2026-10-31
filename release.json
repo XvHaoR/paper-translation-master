@@ -1,0 +1,8 @@
+{
+  "name": "论文翻译大师",
+  "slug": "paper-translation-master",
+  "runtimeDirectory": "PaperTranslationMaster",
+  "version": "0.3.0",
+  "repository": "XvHaoR/paper-translation-master",
+  "prerelease": true
+}

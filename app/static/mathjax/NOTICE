@@ -1,0 +1,27 @@
+MathJax 3.2.2
+https://github.com/mathjax/MathJax/tree/3.2.2
+https://github.com/mathjax/MathJax-src/tree/3.2.2
+
+Copyright (c) The MathJax Consortium and contributors.
+Relevant upstream source notices include:
+Copyright (c) 2017-2022 The MathJax Consortium.
+
+Licensed under the Apache License, Version 2.0.
+The complete license is provided in the adjacent LICENSE file.
+
+The bundled MathJax JavaScript also contains:
+
+Speech Rule Engine 4.0.6
+https://github.com/Speech-Rule-Engine/speech-rule-engine/tree/v4.0.6
+Copyright 2014-21 Volker Sorge and contributors.
+Licensed under the Apache License, Version 2.0.
+
+mhchemParser 4.1.1
+https://github.com/mhchem/mhchemParser
+Copyright (c) 2015-2021 Martin Hensel.
+Licensed under the Apache License, Version 2.0.
+The original notice remains in the bundled JavaScript.
+
+These third-party files are distributed without changes by
+Paper Translation Master. The surrounding application has a separate
+license; it does not replace the licenses of these third-party works.

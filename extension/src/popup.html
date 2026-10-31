@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>论文翻译大师</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<div class="popup">
+  <h1>📄 论文翻译大师</h1>
+  <div id="status" class="status status-unknown">正在检查本地服务…</div>
+
+  <button id="btn-parse" class="primary" disabled>解析当前 PDF</button>
+  <button id="btn-file" disabled>选择本地 PDF…</button>
+
+  <details id="pair-box" class="pair-box">
+    <summary>配对本地服务</summary>
+    <p class="hint">在 论文翻译大师 Web 界面（服务首页）点击"生成配对码"，然后输入：</p>
+    <div class="pair-row">
+      <input id="pair-code" type="text" inputmode="numeric" maxlength="6" placeholder="6 位配对码">
+      <button id="btn-pair">配对</button>
+    </div>
+    <p id="pair-msg" class="pair-msg"></p>
+  </details>
+
+  <div id="progress-box" class="progress-box" hidden>
+    <div class="progress-bar"><div id="progress-fill"></div></div>
+    <p id="progress-text" class="progress-text"></p>
+  </div>
+
+  <footer>
+    <button id="btn-options" class="link">设置</button>
+    <span class="ver">v0.1.0</span>
+  </footer>
+</div>
+<script src="popup.js"></script>
+</body>
+</html>

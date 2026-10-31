@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>论文翻译大师本地服务</title>
+<style>
+  :root { --bg:#f8fafc; --fg:#1a1a1a; --muted:#6b7280; --accent:#2563eb; --border:#e5e7eb; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 22px; }
+  .sub { color: var(--muted); margin-top: -6px; }
+
+  #drop {
+    border: 2px dashed #cbd5e1;
+    border-radius: 12px;
+    padding: 44px 20px;
+    text-align: center;
+    cursor: pointer;
+    margin: 20px 0;
+    background: #fff;
+    transition: border-color .2s;
+  }
+  #drop.dragover { border-color: var(--accent); background: #eff6ff; }
+  #drop .big { font-size: 16px; font-weight: 600; }
+  #drop .small { color: var(--muted); font-size: 13px; margin-top: 6px; }
+
+  .card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    margin: 14px 0;
+  }
+  .card h2 { font-size: 15px; margin: 0 0 10px; }
+
+  .progress-bar { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+  .progress-fill { height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+  .progress-text { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  td.col-title { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  a { color: var(--accent); text-decoration: none; }
+
+  .pair-code {
+    font-size: 28px;
+    letter-spacing: 10px;
+    font-weight: 700;
+    font-family: ui-monospace, Consolas, monospace;
+    color: var(--accent);
+    text-align: center;
+    margin: 10px 0;
+  }
+  button {
+    background: var(--accent); color: #fff; border: none; border-radius: 6px;
+    padding: 8px 16px; cursor: pointer; font-size: 13px;
+  }
+  .status { font-size: 13px; margin-top: 8px; }
+  .status.bad { color: #b91c1c; }
+  .status.good { color: #047857; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📄 论文翻译大师本地服务 <button id="btn-settings" style="font-size:14px">⚙ 翻译设置</button></h1>
+  <p class="sub">把 PDF 拖进来，生成可被沉浸式翻译识别的 HTML 阅读页 · 全部在本地处理</p>
+
+  <div id="drop">
+    <div class="big">拖放 PDF 到这里，或点击选择文件</div>
+    <div class="small">支持单文件 · 最大 200MB · 转换完成后自动打开阅读页</div>
+  </div>
+  <input type="file" id="file" accept=".pdf,application/pdf" hidden>
+
+  <div class="card" id="job-card" hidden>
+    <h2 id="job-title">任务</h2>
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    <p class="progress-text" id="progress-text"></p>
+    <div style="margin-top:10px">
+      <button id="btn-open" hidden>📖 打开阅读页</button>
+      <button id="btn-retry" hidden style="background:#b91c1c">重试</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>浏览器插件配对</h2>
+    <p class="sub" style="margin-top:0">
+      在 Chrome/Edge 扩展弹窗中点击"配对本地服务"并输入以下配对码
+      （10 分钟内有效）：
+    </p>
+    <div class="pair-code" id="pair-code">------</div>
+    <button id="btn-new-code">重新生成配对码</button>
+    <p class="status" id="pair-status"></p>
+  </div>
+
+  <div class="card">
+    <h2>已生成的文档</h2>
+    <div id="docs-list"><p class="sub">（暂无）</p></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var drop = document.getElementById("drop");
+  var fileInput = document.getElementById("file");
+  var jobCard = document.getElementById("job-card");
+  var progressFill = document.getElementById("progress-fill");
+  var progressText = document.getElementById("progress-text");
+
+  // ---- 拖放上传 ----
+  function upload(file) {
+    var fd = new FormData();
+    fd.append("upload", file);
+    jobCard.hidden = false;
+    progressFill.style.width = "3%";
+    progressText.textContent = "上传中…";
+    fetch("/api/jobs", { method: "POST", body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (data) { poll(data.job_id); })
+      .catch(function (e) {
+        progressText.textContent = "上传失败：" + e.message;
+      });
+  }
+
+  function stagePct(stage) {
+    var order = ["queued","queued_gpu","preflight","rendering_pages","layout_analysis","recognizing","normalizing","rendering_html","ready","needs_review","failed"];
+    var i = order.indexOf(stage);
+    return i < 0 ? 5 : Math.min(95, Math.round(i / order.length * 100));
+  }
+  var stageLabel = {
+    queued: "排队中", queued_gpu: "等待 GPU OCR", preflight: "预检 PDF", rendering_pages: "渲染页面",
+    layout_analysis: "版面分析", recognizing: "识别内容（首次运行会下载模型，请耐心等待）",
+    normalizing: "规范化", rendering_html: "生成阅读页",
+    ready: "完成 ✓", needs_review: "完成（部分内容需核对）", failed: "失败 ✗"
+  };
+
+  function poll(jobId) {
+    fetch("/api/jobs/" + jobId)
+      .then(function (r) { return r.json(); })
+      .then(function (job) {
+        progressFill.style.width = stagePct(job.state) + "%";
+        progressText.textContent = (stageLabel[job.state] || job.state) +
+          (job.progress && job.progress.message ? " — " + job.progress.message : "");
+        var openBtn = document.getElementById("btn-open");
+        var retryBtn = document.getElementById("btn-retry");
+        if (["ready", "needs_review", "failed"].indexOf(job.state) >= 0) {
+          if (job.state === "failed") {
+            progressText.textContent = "失败：" + (job.errors || []).join("；");
+            retryBtn.hidden = false;
+            retryBtn.onclick = function () {
+              retryBtn.hidden = true;
+              upload(fileInput.files && fileInput.files[0]);
+            };
+          } else if (job.document_id) {
+            // 阅读页必须由用户手势打开（异步 window.open 会被浏览器拦截）
+            progressText.textContent = stageLabel[job.state] + " — 阅读页已生成，请点击下方按钮打开";
+            openBtn.hidden = false;
+            openBtn.onclick = function () {
+              window.open("/documents/" + job.document_id + "/", "_blank");
+            };
+            loadDocs();
+          }
+          return;
+        }
+        setTimeout(function () { poll(jobId); }, 1200);
+      })
+      .catch(function (e) {
+        progressText.textContent = "查询任务失败：" + e.message;
+      });
+  }
+
+  drop.addEventListener("click", function () { fileInput.click(); });
+  drop.addEventListener("dragover", function (e) {
+    e.preventDefault();
+    drop.classList.add("dragover");
+  });
+  drop.addEventListener("dragleave", function () { drop.classList.remove("dragover"); });
+  drop.addEventListener("drop", function (e) {
+    e.preventDefault();
+    drop.classList.remove("dragover");
+    var f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) upload(f);
+  });
+  fileInput.addEventListener("change", function () {
+    if (fileInput.files[0]) upload(fileInput.files[0]);
+  });
+
+  // ---- 配对码 ----
+  function newPairCode() {
+    fetch("/api/browser/pair-code")
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        document.getElementById("pair-code").textContent = d.pair_code;
+        var s = document.getElementById("pair-status");
+        s.className = "status good";
+        s.textContent = "配对码有效 " + d.expires_in + " 秒";
+      });
+  }
+  document.getElementById("btn-new-code").addEventListener("click", newPairCode);
+  newPairCode();
+
+  // ---- 文档列表 ----
+  function escHtml(s) {
+    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function loadDocs() {
+    fetch("/api/documents")
+      .then(function (r) { return r.json(); })
+      .then(function (docs) {
+        var box = document.getElementById("docs-list");
+        if (!docs.length) { box.innerHTML = '<p class="sub">（暂无）</p>'; return; }
+        var rows = docs.map(function (d) {
+          var title = (d.title || "").trim() || "-";
+          return "<tr><td class=\"col-title\">" + escHtml(title) + "</td>" +
+            "<td><a href=\"/documents/" + d.id + "/\" target=\"_blank\">" +
+            escHtml(d.source_pdf || d.id) + "</a></td><td>" + d.page_count + " 页</td><td>" +
+            d.blocks + " 块</td><td>" + d.status + "</td></tr>";
+        }).join("");
+        box.innerHTML = "<table><thead><tr><th>论文名</th><th>文件名</th><th>页数</th><th>块数</th><th>状态</th></tr></thead><tbody>" + rows + "</tbody></table>";
+      });
+  }
+  loadDocs();
+})();
+
+  // ---- 翻译设置 ----
+  document.addEventListener("DOMContentLoaded", function () {
+  var settingsBtn = document.getElementById("btn-settings");
+  var settingsCard = document.getElementById("settings-card");
+  settingsBtn.addEventListener("click", function () {
+    settingsCard.hidden = !settingsCard.hidden;
+    if (!settingsCard.hidden) loadSettings();
+  });
+  function loadSettings() {
+    fetch("/api/settings").then(function (r) { return r.json(); }).then(function (s) {
+      document.getElementById("s-base").value = s.llm_base_url || "";
+      document.getElementById("s-key").value = s.llm_api_key || "";
+      document.getElementById("s-model").value = s.llm_model || "";
+      document.getElementById("s-conc").value = s.llm_concurrency || 4;
+      document.getElementById("s-lang").value = s.lang_to || "zh";
+    }).catch(function () {
+      document.getElementById("s-status").textContent = "读取失败";
+      document.getElementById("s-status").className = "status bad";
+    });
+  }
+  document.getElementById("s-save").addEventListener("click", function () {
+    var body = {
+      llm_base_url: document.getElementById("s-base").value.trim(),
+      llm_api_key: document.getElementById("s-key").value.trim(),
+      llm_model: document.getElementById("s-model").value.trim(),
+      llm_concurrency: parseInt(document.getElementById("s-conc").value, 10) || 4,
+      lang_to: document.getElementById("s-lang").value.trim() || "zh"
+    };
+    fetch("/api/settings", { method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body) })
+      .then(function (r) {
+        var st = document.getElementById("s-status");
+        if (r.ok) { st.textContent = "已保存"; st.className = "status good"; }
+        else { return r.json().then(function (d) { throw new Error(d.detail || "保存失败"); }); }
+      })
+      .catch(function (e) {
+        var st = document.getElementById("s-status");
+        st.textContent = e.message; st.className = "status bad";
+      });
+  });
+  document.getElementById("s-test").addEventListener("click", async function () {
+    var st = document.getElementById("s-status");
+    this.disabled = true;
+    st.textContent = "测试中...";
+    try {
+      var r = await fetch("/api/settings/test", {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({llm_base_url: document.getElementById("s-base").value.trim(),
+          llm_api_key: document.getElementById("s-key").value.trim(), llm_model: document.getElementById("s-model").value.trim()})});
+      var data = await r.json();
+      if (!r.ok) throw new Error(data.detail || "连接失败");
+      st.textContent = "连接成功：" + data.text; st.className = "status good";
+    } catch (e) { st.textContent = e.message; st.className = "status bad"; }
+    finally { this.disabled = false; }
+  });
+  });
+</script>
+
+  <!-- 翻译设置面板 -->
+  <div class="card" id="settings-card" hidden>
+    <h2>⚙ 翻译设置</h2>
+    <p class="small">配置后阅读页「译」按钮可用。支持任意 OpenAI 兼容接口(DeepSeek/Kimi/Qwen/Ollama 本地等)。
+    <br>留空服务地址即关闭翻译。密钥仅保存在本机 workspace/settings.json。</p>
+    <label class="row">服务地址 <input id="s-base" placeholder="https://api.deepseek.com/v1 或 http://localhost:11434/v1" style="width:340px"></label>
+    <label class="row">API Key <input id="s-key" type="password" placeholder="可留空(如 Ollama)" style="width:300px"></label>
+    <label class="row">模型名 <input id="s-model" placeholder="deepseek-chat / qwen2.5 / ..." style="width:200px"></label>
+    <label class="row">并发 <input id="s-conc" type="number" min="1" max="16" value="4" style="width:60px"></label>
+    <label class="row">目标语言 <input id="s-lang" value="zh" style="width:60px"></label>
+    <div class="row"><button id="s-save">保存</button><button id="s-test">测试连接</button><span id="s-status" class="status"></span></div>
+  </div>
+
+</body>
+</html>
