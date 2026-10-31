@@ -594,10 +594,11 @@ class HtmlRenderer:
         d = ir.document
         title = d.title or Path(d.source_pdf).stem
         authors = ", ".join(d.authors) if d.authors else ""
+        authors_html = f'<p class="authors">{_esc(authors)}</p>' if authors else ""
         strategy = _doc_strategy_summary(ir)
         return (
             f'<header class="doc-meta"><h1>{_esc(title)}</h1>'
-            f'{"<p class=\"authors\">" + _esc(authors) + "</p>" if authors else ""}'
+            f'{authors_html}'
             f'<p class="doc-info">来源：{_esc(d.source_pdf)} · 共 {d.page_count} 页 · {strategy}</p>'
             "</header>"
         )
