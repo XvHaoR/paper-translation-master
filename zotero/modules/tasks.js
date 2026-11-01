@@ -4,6 +4,11 @@
   PL.Tasks = {
     queue: [],
     pending: new Map(),
+    lanes: new Map(),
+    get running() { return [...this.lanes.values()]; },
+    // Compatibility for callers that only need to know whether work is active.
+    get active() { return this.running[0] || null; },
+    forSource(source) { return this.running.find(task => task.source.id === source.id); },
     autoCandidates: new Map(),
     batches: new Map(),
     async sourceFor(item) {
@@ -33,27 +38,47 @@
       this.drain();
       return promise;
     },
-    async drain() {
-      if (this.active || !PL.alive) return;
-      while (this.queue.length && PL.alive) {
-        const task = this.active = this.queue.shift();
-        task.startedAt = Date.now();
-        PL.UI.refreshTasks();
-        try {
-          PL.Store.set(task.source, task.kind, { state: "processing", message: "正在处理" }, task.language);
-          const result = task.kind === "ocr" ? await this.ocrCore(task) : await this.translateCore(task);
-          task.resolve(result);
-        }
-        catch (error) {
-          if (!task.cancelled) PL.Store.set(task.source, task.kind, { state: "failed", message: error.message }, task.language);
-          task.reject(error);
-        }
-        finally {
-          this.pending.delete(task.key);
-          this.active = null;
-          PL.UI.refreshTasks();
-        }
+    drain() {
+      if (!PL.alive) return;
+      // OCR and remote LLM requests use independent resources. Keep one worker
+      // per kind, and serialize access to each PDF so a translation cannot read
+      // a document while that same document is being regenerated.
+      for (const kind of ["ocr", "translate"]) {
+        if (this.lanes.has(kind)) continue;
+        const index = this.queue.findIndex((task, index) => task.kind === kind && !this.forSource(task.source)
+          && !this.queue.slice(0, index).some(earlier => earlier.source.id === task.source.id));
+        if (index < 0) continue;
+        const [task] = this.queue.splice(index, 1);
+        this.lanes.set(kind, task);
+        this.run(task);
       }
+    },
+    async run(task) {
+      task.startedAt = Date.now();
+      PL.UI.refreshTasks();
+      try {
+        PL.Store.set(task.source, task.kind, { state: "processing", message: "正在处理" }, task.language);
+        const result = task.kind === "ocr" ? await this.ocrCore(task) : await this.translateCore(task);
+        task.resolve(result);
+      }
+      catch (error) {
+        if (!task.cancelled) PL.Store.set(task.source, task.kind, { state: "failed", message: error.message }, task.language);
+        task.reject(error);
+      }
+      finally {
+        this.pending.delete(task.key);
+        this.lanes.delete(task.kind);
+        PL.UI.refreshTasks();
+        this.drain();
+      }
+    },
+    async request(task, method, path, body, options = {}) {
+      this.check(task);
+      const result = await PL.request(method, path, body, {
+        ...options, requestObserver: xhr => { task.xhr = xhr; if (task.cancelled) xhr.abort(); },
+      });
+      this.check(task);
+      return result;
     },
     async fingerprint(source) {
       const path = await source.getFilePathAsync();
@@ -70,7 +95,10 @@
       form.append("ocr_mode", PL.config.ocrMode || "official");
       form.append("force", String(!!task.force || !!PL.Store.get(task.source)?.forceNextOCR));
       form.append("upload", new window.Blob([await IOUtils.read(fingerprint.path)], { type: "application/pdf" }), PathUtils.filename(fingerprint.path));
-      const uploaded = await PL.request("POST", "/api/jobs", undefined, { body: form, headers: { "Content-Type": "multipart/form-data" } });
+      // Record the server job ID even if cancellation races with the upload
+      // response, so the newly submitted job can still be cancelled below.
+      const uploaded = await PL.request("POST", "/api/jobs", undefined, { body: form, headers: { "Content-Type": "multipart/form-data" },
+        requestObserver: xhr => { task.xhr = xhr; if (task.cancelled) xhr.abort(); } });
       task.jobID = uploaded.job_id;
       if (task.cancelled) {
         await PL.request("POST", `/api/jobs/${encodeURIComponent(task.jobID)}/cancel`);
@@ -79,7 +107,7 @@
       const deadline = Date.now() + 3600000;
       while (PL.alive && Date.now() < deadline) {
         this.check(task);
-        const job = await PL.request("GET", `/api/jobs/${encodeURIComponent(uploaded.job_id)}`);
+        const job = await this.request(task, "GET", `/api/jobs/${encodeURIComponent(uploaded.job_id)}`);
         this.check(task);
         if (["failed", "cancelled"].includes(job.state)) throw new Error(job.errors?.join("；") || "OCR 失败");
         if (["ready", "needs_review"].includes(job.state)) return job.document_id;
@@ -98,6 +126,7 @@
       if (!library.editable || !library.filesEditable) throw new Error("当前文献库没有写入文件的权限");
       fingerprint ||= await this.fingerprint(task.source);
       const saved = await PL.Store.saved(task.source, "ocr", task.language, fingerprint.hash);
+      this.check(task);
       if (saved && !task.force && !PL.Store.get(task.source)?.forceNextOCR) {
         PL.Store.set(task.source, "ocr", { ...saved, attachment: undefined, state: "ready", message: "" });
         return saved;
@@ -105,7 +134,7 @@
       let documentID;
       try {
         documentID = await this.parse(task, fingerprint);
-        const artifact = await PL.request("POST", `/api/documents/${encodeURIComponent(documentID)}/ocr-export`);
+        const artifact = await this.request(task, "POST", `/api/documents/${encodeURIComponent(documentID)}/ocr-export`);
         this.check(task);
         if ((await this.fingerprint(task.source)).hash !== fingerprint.hash) throw new Error("PDF 在处理期间已修改，请重试");
         PL.Store.ensure(task.source).forceNextOCR = false;
@@ -123,13 +152,14 @@
     async translateCore(task) {
       const fingerprint = await this.fingerprint(task.source);
       const saved = await PL.Store.saved(task.source, "translate", task.language, fingerprint.hash);
+      this.check(task);
       if (saved && !PL.Editing.stale(PL.Store.get(task.source), task.language)) {
         PL.Store.set(task.source, "translate", { ...saved, attachment: undefined, state: "ready", message: "" }, task.language);
         return saved;
       }
       const ocr = await this.ocrCore(task, fingerprint);
       await PL.Service.ensure();
-      const config = await PL.request("GET", "/api/settings");
+      const config = await this.request(task, "GET", "/api/settings");
       if (!config.llm_base_url || !config.llm_model) throw new Error("请在论文翻译大师设置中填写翻译服务地址与模型；OCR 版本已保存");
       task.message = "正在翻译，完成后自动保存…";
       PL.UI.refreshTasks();
@@ -137,17 +167,17 @@
       // was removed, uploading the PDF rebuilds it rather than failing forever.
       let documentID = ocr.documentID;
       if (ocr.editRevision) await PL.Editing.uploadSource(task, ocr);
-      else try { await PL.request("GET", `/api/documents/${encodeURIComponent(documentID)}`, undefined, { timeout: 5000 }); }
+      else try { await this.request(task, "GET", `/api/documents/${encodeURIComponent(documentID)}`, undefined, { timeout: 5000 }); }
       catch (_) {
         documentID = await this.parse(task, fingerprint);
         PL.Store.set(task.source, "ocr", { state: "ready", message: "", documentID });
       }
-      const artifact = await PL.request("POST", `/api/documents/${encodeURIComponent(documentID)}/translations`, {
+      const artifact = await this.request(task, "POST", `/api/documents/${encodeURIComponent(documentID)}/translations`, {
         lang_to: task.language, force: !!PL.Store.get(task.source)?.forceNextTranslation?.[task.language],
         source_revision: ocr.editRevision || undefined,
         revision: typeof PL.Store.get(task.source)?.forceNextTranslation?.[task.language] === "string"
           ? PL.Store.get(task.source).forceNextTranslation[task.language] : undefined,
-      }, { requestObserver: xhr => { task.xhr = xhr; if (task.cancelled) xhr.abort(); } });
+      });
       this.check(task);
       if ((await this.fingerprint(task.source)).hash !== fingerprint.hash) throw new Error("PDF 在翻译期间已修改，请重试");
       const result = await PL.Artifacts.download(task.source, "translate", fingerprint.hash, artifact, task.language, () => this.check(task));
@@ -158,27 +188,32 @@
     check(task) {
       if (task.cancelled || !PL.alive) throw new Error("处理已取消");
     },
+    async cancel(matches, message) {
+      const queued = this.queue.filter(matches);
+      this.queue = this.queue.filter(task => !matches(task));
+      for (const task of queued) {
+        task.cancelled = true; task.reject(new Error(message)); this.pending.delete(task.key);
+      }
+      const running = this.running.filter(matches);
+      const settled = running.map(task => this.pending.get(task.key)?.catch(() => {}));
+      for (const task of running) {
+        task.cancelled = true;
+        task.xhr?.abort();
+        if (task.jobID) {
+          try { await PL.request("POST", `/api/jobs/${encodeURIComponent(task.jobID)}/cancel`, undefined, { timeout: 3000 }); }
+          catch (error) { Zotero.logError(error); }
+        }
+      }
+      // Cancelling one paper must not stop the shared model/service or another
+      // paper's concurrent translation. The backend cancels just this OCR job.
+      await Promise.all(settled);
+      PL.UI.refreshTasks();
+    },
     async clearOCR(source) {
       if (PL.Editing.jobs.has(PL.Store.key(source))) throw new Error("请等待 OCR 修改保存完成");
       const library = Zotero.Libraries.get(source.libraryID);
       if (!library.editable || !library.filesEditable) throw new Error("当前文献库没有写入权限");
-      for (const task of this.queue.filter(task => task.source.id === source.id)) {
-        task.cancelled = true;
-        task.reject(new Error("OCR 结果已清除"));
-        this.pending.delete(task.key);
-      }
-      this.queue = this.queue.filter(task => task.source.id !== source.id);
-      const active = this.active?.source.id === source.id ? this.active : null;
-      if (active) {
-        active.cancelled = true;
-        if (active.jobID) {
-          try { await PL.request("POST", `/api/jobs/${encodeURIComponent(active.jobID)}/cancel`, undefined, { timeout: 3000 }); }
-          catch (error) { Zotero.logError(error); }
-        }
-        // Release a stuck model/API call rather than leave this paper occupied.
-        if (PL.Service.owned) await PL.Service.stop({ force: true });
-        await this.pending.get(active.key)?.catch(() => {});
-      }
+      await this.cancel(task => task.source.id === source.id, "OCR 结果已清除");
       PL.ReaderUI.releaseOCR(source);
       const search = new Zotero.Search();
       search.libraryID = source.libraryID;
@@ -197,16 +232,7 @@
       const library = Zotero.Libraries.get(source.libraryID);
       if (!library.editable || !library.filesEditable) throw new Error("当前文献库没有写入权限");
       const matches = task => task.source.id === source.id && task.kind === "translate" && task.language === language;
-      for (const task of this.queue.filter(matches)) {
-        task.cancelled = true; task.reject(new Error("译文已清除")); this.pending.delete(task.key);
-      }
-      this.queue = this.queue.filter(task => !matches(task));
-      if (this.active && matches(this.active)) {
-        const active = this.active;
-        active.cancelled = true; active.xhr?.abort();
-        if (PL.Service.owned) await PL.Service.stop({ force: true });
-        await this.pending.get(active.key)?.catch(() => {});
-      }
+      await this.cancel(matches, "译文已清除");
       PL.ReaderUI.releaseTranslation(source, language);
       const search = new Zotero.Search(); search.libraryID = source.libraryID;
       search.addCondition("tag", "is", `paperloom:pdf:${source.key}`);
@@ -306,6 +332,7 @@
         PL.Store.set(task.source, task.kind, { state: "failed", message: "处理已停止，可以重试" }, task.language);
         task.reject(new Error("插件已停用"));
       }
+      for (const task of this.running) { task.cancelled = true; task.xhr?.abort(); }
       this.pending.clear();
     },
   };

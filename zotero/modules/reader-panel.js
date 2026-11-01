@@ -145,9 +145,9 @@
       const source = Zotero.Items.get(reader.itemID);
       if (!source) return;
       const record = PL.Store.get(source);
-      const active = PL.Tasks.active?.source.id === source.id;
+      const active = PL.Tasks.forSource(source);
       const legacy = !!state.saved && state.exportSchema != null && state.exportSchema < 5;
-      state.heading.textContent = active ? PL.Tasks.active.message || (PL.Tasks.active.kind === "ocr" ? "正在 OCR…" : "正在翻译…")
+      state.heading.textContent = active ? active.message || (active.kind === "ocr" ? "正在 OCR…" : "正在翻译…")
         : state.kind === "ocr" ? "OCR 版本" : `译文 · ${PL.language()}`;
       if (!active && legacy) state.heading.textContent += state.kind === "ocr" ? " · 旧版 OCR：重新 OCR 后可使用段落对照" : " · 旧版译文，可删除后重新翻译";
       if (!active && state.kind === "translate" && PL.Editing.stale(record)) state.heading.textContent += " · 原文已修改，点击翻译可更新";

@@ -669,7 +669,28 @@ startup = async function (...args) {
       choosePapers(ocrPicker,batchPDFs);
       const readersBeforeBatch=Zotero.Reader._readers.length;
       await screenshot(ocrPicker,smokeScreenshotPath.replace("integrated-reader.png","batch-picker.png"));
+      await PL.request("POST","/api/testing/hold-second-ocr");
       ocrPicker.document.getElementById("start").click();
+      await waitFor(async()=>PL.Store.get(batchPDFs[0])?.ocr?.state==="ready"
+        &&(await PL.request("GET","/api/testing/calls")).ocr_held);
+      // The fake converter deliberately shares one document cache between
+      // fixture PDFs. Bypass the earlier translation cache to exercise the LLM.
+      await PL.Tasks.clearTranslation(batchPDFs[0]);
+      let translatedDuringOCR=false,parallelError;
+      const parallelTranslation=PL.translate(window,batchPDFs[0]).then(result=>{
+        translatedDuringOCR=true;return result;
+      },error=>{parallelError=error;});
+      try {
+        await waitFor(()=>translatedDuringOCR||parallelError,15000);
+        if(parallelError)throw parallelError;
+        const parallelCalls=await PL.request("GET","/api/testing/calls");
+        report.parallelProcessing={...parallelCalls,activeOCR:PL.Tasks.forSource(batchPDFs[1])?.kind};
+        check(parallelCalls.ocr_held&&parallelCalls.llm>beforeBatchCalls.llm
+          &&PL.Tasks.forSource(batchPDFs[1])?.kind==="ocr",
+          "first paper completes real translation API and saves its result while the second OCR job is still held");
+        check(Zotero.Reader._readers.length===readersBeforeBatch,"concurrent OCR and translation remain in the background without opening tabs");
+      } finally { await PL.request("POST","/api/testing/release-ocr"); }
+      await parallelTranslation;
       await waitFor(()=>PL.Tasks.lastBatch!==previousBatch&&PL.Tasks.lastBatch?.finished);
       check(PL.Tasks.lastBatch.total===2&&PL.Tasks.lastBatch.success===2&&batchPDFs.every(pdf=>PL.Store.get(pdf)?.ocr?.state==="ready"),"dialog checkmarks process both papers independently of main-window selection");
       check((await PL.request("GET","/api/testing/calls")).ocr===beforeBatchCalls.ocr+2,"batch OCR actually processes both distinct PDFs");

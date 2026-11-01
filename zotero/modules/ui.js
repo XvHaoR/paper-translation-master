@@ -130,6 +130,7 @@
     },
     refreshTasks() {
       const task = PL.Tasks.active;
+      const running = PL.Tasks.running || (task ? [task] : []);
       const batch = task ? task.batch : [...PL.Tasks.batches.values()].find(batch=>!batch.finished) || PL.Tasks.lastBatch;
       for (const window of PL.windows.keys()) {
         const node = window.document.getElementById("paperloom-task-status");
@@ -138,7 +139,12 @@
         const progress = batch ? `批量 ${batch.kind === "ocr" ? "OCR" : "翻译"} ${batch.done}/${batch.total}` : "";
         node.textContent = task ? `${progress || (task.kind === "ocr" ? "OCR" : "翻译")} · ${task.message || "处理中…"}${PL.Tasks.queue.length ? ` · 等待 ${PL.Tasks.queue.length} 篇` : ""}`
           : batch ? `${progress} · ${batch.finished ? "完成" : "等待处理"} · 成功 ${batch.success}${batch.failed ? ` · 失败 ${batch.failed}` : ""}${batch.skipped ? ` · 跳过 ${batch.skipped}` : ""}` : "";
-        node.title = [node.textContent,task?.source.getField("title")].filter(Boolean).join("\n");
+        if (running.length > 1) node.textContent = running.map(task => {
+          const batch = task.batch;
+          const label = task.kind === "ocr" ? "OCR" : "翻译";
+          return `${batch ? `批量 ${label} ${batch.done}/${batch.total}` : label} · ${task.message || "处理中…"}`;
+        }).join(" ｜ ") + (PL.Tasks.queue.length ? ` · 等待 ${PL.Tasks.queue.length} 篇` : "");
+        node.title = [node.textContent,...running.map(task => task.source.getField("title"))].filter(Boolean).join("\n");
       }
       PL.ReaderUI.refresh();
     },

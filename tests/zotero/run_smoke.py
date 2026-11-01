@@ -106,9 +106,24 @@ def main():
     app = create_app(settings)
     calls = {"ocr": 0, "llm": 0}
     block_next = threading.Event()
+    hold_ocr = threading.Event()
+    release_ocr = threading.Event()
+    hold_after = None
     @app.get("/api/testing/calls")
     def testing_calls():
-        return calls
+        return {**calls, "ocr_held": hold_ocr.is_set()}
+
+    @app.post("/api/testing/hold-second-ocr")
+    def testing_hold_second_ocr():
+        nonlocal hold_after
+        hold_after = calls["ocr"] + 2
+        release_ocr.clear()
+        return {"ok": True}
+
+    @app.post("/api/testing/release-ocr")
+    def testing_release_ocr():
+        release_ocr.set()
+        return {"ok": True}
 
     @app.post("/api/testing/block-next")
     def testing_block_next():
@@ -125,6 +140,15 @@ def main():
 
     def convert(*args, **kwargs):
         calls["ocr"] += 1
+        if calls["ocr"] == hold_after:
+            hold_ocr.set()
+            try:
+                deadline = time.monotonic() + 45
+                while not release_ocr.is_set() and time.monotonic() < deadline:
+                    kwargs["progress"]("recognizing", 1, 2, "Concurrent OCR fixture")
+                    release_ocr.wait(.1)
+            finally:
+                hold_ocr.clear()
         if block_next.is_set():
             block_next.clear()
             for _ in range(100):

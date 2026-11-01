@@ -55,7 +55,8 @@
 
 0.4.0 增加 [RapidOCR 完整文档版](docs/RAPIDOCR_EDITION.md)，CPU 即可使用，保留公式、表格、编辑、翻译及原文对照。
 下载名称含 `rapidocr` 的 XPI 与安装器；引擎使用独立目录，不覆盖原 VL 环境，已保存结果继续有效。
-原 PaddleOCR-VL 版 0.3.1 仍可从历史发布下载。CPU 版更容易配置，不承诺完整识别总是比 GPU 版快。
+原 PaddleOCR-VL 版 [0.3.2](https://github.com/XvHaoR/paper-translation-master/releases/tag/v0.3.2) 修复了 OCR 阻塞翻译的队列问题：第一篇识别完成后，可以在第二篇继续 OCR 时翻译并保存。
+0.3.1 用户只需更新原版 XPI，无需重装引擎；同一篇论文仍按提交顺序处理。CPU 版更容易配置，不承诺完整识别总是比 GPU 版快。
 
 0.3.1 修复新旧插件与改名后 OCR 页面混用时的段落定位，并拆分阅读通信、布局、外观、坐标与高亮。
 安装新版 XPI 并重启 Zotero 即可对照已有结果，无需重新 OCR 或翻译。
