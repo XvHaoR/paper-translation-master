@@ -2,12 +2,12 @@
   "name": "论文翻译大师",
   "slug": "paper-translation-master",
   "runtimeDirectory": "PaperTranslationMaster",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "repository": "XvHaoR/paper-translation-master",
   "prerelease": true,
   "changes": [
-    "修复旧插件与改名后阅读页混用时的段落定位，已有 OCR 和译文无需重新生成。",
-    "拆分通信、阅读布局、字体外观、PDF 坐标与高亮模块；高亮关闭后仍可双向定位。",
-    "修复 MathJax 异步排版移除公式复制控件的边界，并补新旧页面、连续切换和故障恢复回归。"
+    "修复 0.3.1 OCR 与翻译共用串行队列：已识别论文可在其他论文继续 OCR 时翻译并保存。",
+    "同一 PDF 按提交顺序执行；取消单篇任务不再停止共享服务，工具栏同时显示 OCR 与翻译进度。",
+    "保留原版 PaddleOCR-VL 引擎、段落对照、公式和表格等功能；0.3.1 用户仅需更新插件。"
   ]
 }

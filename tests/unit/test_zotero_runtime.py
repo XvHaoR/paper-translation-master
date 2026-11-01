@@ -22,9 +22,122 @@ const PaperLoom={alive:true,windows:new Map(),pref:(key,fallback)=>prefs[key]??f
 const Zotero={Promise:{delay:async()=>{}},getMainWindow:()=>null};
 """
     source = setup + "\n".join((ROOT / "zotero/modules" / (name+".js")).read_text(encoding="utf-8") for name in modules)
-    process = subprocess.run([node,"-"],input=source+"\n(async()=>{\n"+script+"\n})().catch(e=>{console.error(e);process.exitCode=1;});",
-                             text=True,encoding="utf-8",capture_output=True)
+    process = subprocess.run([node,"-"],input=source+"\n(async()=>{\n"+script+"\nconsole.log('runtime-test-complete');})().catch(e=>{console.error(e);process.exitCode=1;});",
+                             text=True,encoding="utf-8",capture_output=True,timeout=30)
     assert process.returncode == 0, process.stderr
+    assert "runtime-test-complete" in process.stdout, "An awaited task never completed"
+
+
+def test_completed_paper_translates_while_next_ocr_is_still_running():
+    run_js(["tasks"], """
+const tasks=PaperLoom.Tasks, a={id:1}, b={id:2};
+let finishB;const blockedB=new Promise(resolve=>finishB=resolve);
+let startedB=false, translated=false, submissions=0;
+tasks.fingerprint=async source=>({hash:`pdf-${source.id}`});
+tasks.ocrCore=async task=>{
+  if(task.kind==='ocr') { submissions++;if(task.source===b){startedB=true;await blockedB;} }
+  return {documentID:`doc-${task.source.id}`};
+};
+PaperLoom.Store.saved=async()=>null;PaperLoom.Store.get=()=>({});PaperLoom.Store.flush=async()=>{};
+PaperLoom.Editing.stale=()=>false;PaperLoom.Service={ensure:async()=>{}};
+PaperLoom.request=async(method,path)=>{
+  if(path==='/api/settings')return {llm_base_url:'http://llm',llm_model:'test'};
+  if(path.endsWith('/translations')){assert.ok(startedB);assert.equal(tasks.forSource(b).kind,'ocr');translated=true;return {id:'translated-a'};}
+  return {};
+};
+PaperLoom.Artifacts={download:async(source,kind,hash,artifact)=>artifact};
+const first=tasks.enqueue(a,'ocr'),second=tasks.enqueue(b,'ocr');
+await first;assert.ok(startedB);
+await tasks.enqueue(a,'translate');
+assert.ok(translated);assert.equal(submissions,2);assert.equal(tasks.forSource(b).kind,'ocr');
+finishB();await second;assert.equal(tasks.pending.size,0);assert.equal(tasks.running.length,0);
+""")
+
+
+def test_independent_lanes_serialize_each_kind_and_lock_only_the_same_pdf():
+    run_js(["tasks"], """
+const tasks=PaperLoom.Tasks,a={id:1},b={id:2},events=[];
+const gates={};const counts={ocr:0,translate:0},max={ocr:0,translate:0};
+const run=async task=>{
+  const key=`${task.kind}${task.source.id}`;events.push(key);counts[task.kind]++;
+  max[task.kind]=Math.max(max[task.kind],counts[task.kind]);
+  await new Promise(resolve=>gates[key]=resolve);counts[task.kind]--;return {};
+};tasks.ocrCore=run;tasks.translateCore=run;
+const translateA=tasks.enqueue(a,'translate');
+const ocrA=tasks.enqueue(a,'ocr',null,{force:true});
+const ocrB=tasks.enqueue(b,'ocr');const translateB=tasks.enqueue(b,'translate');
+assert.deepEqual(events,['translate1','ocr2']);
+gates.ocr2();await ocrB;
+assert.deepEqual(events,['translate1','ocr2']);
+gates.translate1();await translateA;
+assert.deepEqual(events,['translate1','ocr2','ocr1','translate2']);
+gates.translate2();gates.ocr1();await Promise.all([ocrA,translateB]);
+assert.deepEqual(max,{ocr:1,translate:1});assert.equal(tasks.pending.size,0);
+""")
+
+
+def test_translation_waits_for_its_own_ocr_but_not_an_unrelated_pdf():
+    run_js(["tasks"], """
+const tasks=PaperLoom.Tasks,a={id:1},b={id:2};let finishOCR,translatedA=false;
+tasks.ocrCore=async()=>{await new Promise(resolve=>finishOCR=resolve);return {};};
+tasks.translateCore=async task=>{if(task.source===a)translatedA=true;return {};};
+const ocr=tasks.enqueue(a,'ocr');const waiting=tasks.enqueue(a,'translate');
+await tasks.enqueue(b,'translate');assert.equal(translatedA,false);
+finishOCR();await Promise.all([ocr,waiting]);assert.ok(translatedA);
+assert.equal(tasks.pending.size,0);
+""")
+
+
+def test_translation_respects_a_queued_reocr_of_the_same_pdf():
+    run_js(["tasks"], """
+const tasks=PaperLoom.Tasks,a={id:1},b={id:2},events=[];const gates={};
+tasks.ocrCore=async task=>{events.push(`ocr${task.source.id}`);await new Promise(resolve=>gates[task.source.id]=resolve);return {};};
+tasks.translateCore=async task=>{events.push(`translate${task.source.id}`);return {};};
+const ocrB=tasks.enqueue(b,'ocr'),ocrA=tasks.enqueue(a,'ocr',null,{force:true}),translation=tasks.enqueue(a,'translate');
+assert.deepEqual(events,['ocr2']);
+gates[2]();await ocrB;assert.deepEqual(events,['ocr2','ocr1']);
+gates[1]();await Promise.all([ocrA,translation]);
+assert.deepEqual(events,['ocr2','ocr1','translate1']);
+""")
+
+
+@pytest.mark.parametrize("cancel_kind", ["ocr", "translate"])
+def test_cancel_one_lane_does_not_stop_shared_service_or_other_lane(cancel_kind):
+    run_js(["tasks"], """
+const tasks=PaperLoom.Tasks,a={id:1},b={id:2};const gates={};let cancelledJob;
+const run=async task=>{
+  if(task.kind==='ocr')task.jobID='ocr-b';
+  await new Promise((resolve,reject)=>{gates[task.kind]=resolve;task.xhr={abort:()=>reject(new Error('Aborted'))};});
+  tasks.check(task);return {};
+};tasks.ocrCore=run;tasks.translateCore=run;
+PaperLoom.Service={owned:true,stop:async()=>{throw new Error('Shared service must stay alive');}};
+PaperLoom.request=async(method,path)=>{cancelledJob=path;};
+const translating=tasks.enqueue(a,'translate').then(()=>true,()=>false);
+const recognizing=tasks.enqueue(b,'ocr').then(()=>true,()=>false);
+const kind=CANCEL_KIND,other=kind==='ocr'?'translate':'ocr';
+await tasks.cancel(task=>task.kind===kind,'cleared');
+assert.equal(tasks.running.length,1);assert.equal(tasks.active.kind,other);
+assert.equal(await(kind==='ocr'?recognizing:translating),false);
+if(kind==='ocr')assert.equal(cancelledJob,'/api/jobs/ocr-b/cancel');
+gates[other]();assert.equal(await(kind==='ocr'?translating:recognizing),true);
+assert.equal(tasks.pending.size,0);
+""".replace("CANCEL_KIND", json.dumps(cancel_kind)))
+
+
+def test_status_reports_both_active_lanes_and_shutdown_aborts_both():
+    run_js(["tasks", "ui"], """
+const tasks=PaperLoom.Tasks;
+PaperLoom.ReaderUI.refresh=()=>{};
+const node={};PaperLoom.windows.set({document:{getElementById:()=>node}},[]);
+const run=async task=>new Promise((resolve,reject)=>{task.xhr={abort:()=>reject(new Error('Aborted'))};});
+tasks.ocrCore=run;tasks.translateCore=run;
+const ocr=tasks.enqueue({id:1,getField:()=> 'OCR paper'},'ocr').catch(()=>{});
+const translation=tasks.enqueue({id:2,getField:()=> 'Translation paper'},'translate').catch(()=>{});
+PaperLoom.UI.refreshTasks();assert.ok(node.textContent.includes('OCR'));assert.ok(node.textContent.includes('翻译'));
+assert.ok(node.title.includes('OCR paper'));assert.ok(node.title.includes('Translation paper'));
+PaperLoom.alive=false;tasks.shutdown();await Promise.all([ocr,translation]);
+assert.equal(tasks.running.length,0);assert.equal(tasks.pending.size,0);
+""")
 
 
 def test_owned_service_does_not_restart_on_probe_timeout_and_external_retries():
