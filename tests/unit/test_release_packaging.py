@@ -33,13 +33,15 @@ def release_tree(tmp_path):
 
 
 def test_portable_xpi_preserves_upgrade_id_without_local_paths(release_tree):
+    release = json.loads((release_tree / "release.json").read_text(encoding="utf-8"))
     output = release_builder.BUILDER.build(portable=True, root=release_tree / "zotero")
     with ZipFile(output) as bundle:
         config = json.loads(bundle.read("config.json"))
         manifest = json.loads(bundle.read("manifest.json"))
         assert config["projectRoot"] == ""
         assert config["pythonCandidates"] == []
-        assert config["runtimeDirectory"] == "PaperTranslationMaster"
+        assert config["runtimeDirectory"] == release["runtimeDirectory"]
+        assert config["ocrMode"] == release.get("ocrMode", "official")
         assert manifest["applications"]["zotero"]["id"] == "paperloom@paperloom.local"
         assert manifest["applications"]["zotero"]["update_url"].endswith("/releases/latest/download/updates.json")
         for name in bundle.namelist():

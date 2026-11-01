@@ -1,13 +1,14 @@
 {
-  "name": "论文翻译大师",
-  "slug": "paper-translation-master",
-  "runtimeDirectory": "PaperTranslationMaster",
-  "version": "0.3.1",
+  "name": "论文翻译大师 · RapidOCR",
+  "slug": "paper-translation-master-rapidocr",
+  "runtimeDirectory": "PaperTranslationMasterRapidOCR",
+  "version": "0.4.0",
+  "ocrMode": "rapidocr",
   "repository": "XvHaoR/paper-translation-master",
   "prerelease": true,
   "changes": [
-    "修复旧插件与改名后阅读页混用时的段落定位，已有 OCR 和译文无需重新生成。",
-    "拆分通信、阅读布局、字体外观、PDF 坐标与高亮模块；高亮关闭后仍可双向定位。",
-    "修复 MathJax 异步排版移除公式复制控件的边界，并补新旧页面、连续切换和故障恢复回归。"
+    "RapidOCR 完整文档版：RapidDoc 配套版面、公式与表格模型，CPU 即可使用，无需 CUDA 或 NVIDIA。",
+    "保留公式 LaTeX、表格 Excel、Markdown 编辑、批量 OCR/翻译、PDF 段落对照及已保存结果。",
+    "使用独立引擎安装目录，首次安装必须通过扫描 PDF 的文字、公式和表格识别自检。"
   ]
 }

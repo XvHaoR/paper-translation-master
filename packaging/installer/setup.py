@@ -32,6 +32,9 @@ def main():
                         "packaging/installer/requirements-runtime.txt", "release.json"}
             if not required.issubset(set(archive.namelist())):
                 raise RuntimeError("Bundled runtime is incomplete")
+            if release.get("ocrMode") == "rapidocr" and not {"packaging/installer/requirements-rapidocr.txt",
+                "app/parsing/rapidocr_backend.py", "app/pipeline/rapid_document.py"}.issubset(archive.namelist()):
+                raise RuntimeError("Full RapidOCR runtime is incomplete")
             if archive.testzip():
                 raise RuntimeError("Bundled runtime failed ZIP verification")
         if getattr(sys, "frozen", False):
@@ -53,8 +56,12 @@ def main():
     ttk.Label(frame, text="安装本地 OCR 引擎", font=("Microsoft YaHei UI", 17, "bold")).pack(anchor="w")
     ttk.Label(frame, text="无需手动安装 Python，无需打开终端。安装完成后由 Zotero 按需启动。",
               wraplength=680).pack(anchor="w", pady=(8, 10))
-    ttk.Label(frame, text="适用：Windows 10/11 x64，NVIDIA 显卡 ≥ 8 GB 显存（推荐 12 GB），"
-              "驱动 560.76 或更新。\n首次下载依赖和模型需要数 GB 流量、至少 15 GB 空间；支持失败后重新运行继续。",
+    requirements = ("适用：Windows 10/11 x64，CPU 即可，无需独立显卡、CUDA 或 WSL。\n"
+                    "预留至少 5 GB 空间，首次联网安装文字、版面、公式与表格模型，保留完整阅读和导出功能。"
+                    if release.get("ocrMode") == "rapidocr" else
+                    "适用：Windows 10/11 x64，NVIDIA 显卡 ≥ 8 GB 显存（推荐 12 GB），驱动 560.76 或更新。\n"
+                    "首次下载依赖和模型需要数 GB 流量、至少 15 GB 空间；支持失败后重新运行继续。")
+    ttk.Label(frame, text=requirements,
               wraplength=680).pack(anchor="w")
     target = tk.StringVar(value=str(base))
     row = ttk.Frame(frame)

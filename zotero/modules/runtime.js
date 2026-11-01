@@ -17,6 +17,12 @@
       return {...value, descriptor};
     },
     async resolve() {
+      if (PL.config.ocrMode === "rapidocr") {
+        // The full CPU edition has its own verified runtime. Old explicit GPU
+        // paths/preferences must not route it back into the other environment.
+        const installed = await this.installed();
+        if (installed) return {...installed, backend:"local"};
+      }
       const explicit = PL.pref("projectRoot", "");
       if (explicit) {
         let installed;

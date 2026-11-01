@@ -37,6 +37,9 @@ MathJax 的相关版权归 The MathJax Consortium 与各文件贡献者所有。
 
 | 组件 | 当前安装版本/用途 | 原始许可与官方来源 |
 | --- | --- | --- |
+| RapidOCR | 3.10.0；RapidOCR 版的文字识别 | Apache-2.0；https://github.com/RapidAI/RapidOCR |
+| RapidDoc | 0.9.11；完整文档流水线、PP-DocLayoutV3、PP-FormulaNet_plus-M、有线/无线表格模型及上游第三方声明 | Apache-2.0，所含第三方代码和模型各有原声明；https://github.com/RapidAI/RapidDoc/tree/v0.9.11 |
+| ONNX Runtime | 1.28.0 CPU；RapidOCR 版推理运行库 | MIT，所含第三方库另有声明；https://github.com/microsoft/onnxruntime |
 | PyMuPDF / MuPDF | PyMuPDF 1.28.0；PDF 读取、页面与区域处理 | AGPL-3.0，另有商业许可；https://github.com/pymupdf/PyMuPDF/blob/main/COPYING ；https://github.com/pymupdf/PyMuPDF#licensing |
 | PaddleOCR | 3.7.0；文档识别流水线 | Apache-2.0；https://github.com/PaddlePaddle/PaddleOCR/blob/main/LICENSE |
 | PaddleX | 3.7.2；OCR 流水线实现 | Apache-2.0；https://github.com/PaddlePaddle/PaddleX/blob/release/3.7/LICENSE |

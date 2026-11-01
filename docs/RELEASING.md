@@ -9,7 +9,7 @@
 ```powershell
 python -m pip install -e ".[dev]" pyinstaller==6.21.0
 python -m pytest tests/unit tests/integration -q
-python packaging/build_release.py --installer --tag v0.3.1
+python packaging/build_release.py --installer --tag v0.4.0
 ```
 
 Windows 安装器只能在 Windows x64 上构建。普通 `python zotero/build.py`
@@ -39,6 +39,6 @@ Windows 安装器只能在 Windows x64 上构建。普通 `python zotero/build.p
 
 安装器目前没有 Windows 代码签名。不要将 PyInstaller 构建成功、
 SHA-256 校验或通过测试描述为代码签名。OCR 首次真实安装验收仍需
-符合要求的 NVIDIA 设备、驱动、网络与可用磁盘空间。
+符合当前版本要求的设备、网络与可用磁盘空间。RapidOCR 版无需 NVIDIA，但必须实际识别扫描 PDF 的文字、公式和表格。
 
 插件更新清单遵循 [Zotero 官方开发文档](https://www.zotero.org/support/dev/zotero_7_for_developers#updaterdf_updatesjson)。

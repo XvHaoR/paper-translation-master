@@ -67,7 +67,7 @@
       const window = task.window;
       if (!window || window.closed) throw new Error("Zotero 窗口已关闭");
       const form = new window.FormData();
-      form.append("ocr_mode", "official");
+      form.append("ocr_mode", PL.config.ocrMode || "official");
       form.append("force", String(!!task.force || !!PL.Store.get(task.source)?.forceNextOCR));
       form.append("upload", new window.Blob([await IOUtils.read(fingerprint.path)], { type: "application/pdf" }), PathUtils.filename(fingerprint.path));
       const uploaded = await PL.request("POST", "/api/jobs", undefined, { body: form, headers: { "Content-Type": "multipart/form-data" } });

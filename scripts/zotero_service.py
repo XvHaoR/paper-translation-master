@@ -45,11 +45,12 @@ def lease_valid(path: Path, instance: str, now: float | None = None) -> bool:
         return False
 
 
-def compatible_service(url: str) -> bool:
+def compatible_service(url: str, ocr_mode: str = "official") -> bool:
     try:
         with urllib.request.urlopen(url + "/api/zotero/status", timeout=2) as response:
             status = json.load(response)
             return (status.get("protocol") == 2 and status.get("export_schema", 0) >= 7
+                    and (ocr_mode != "rapidocr" or "rapidocr" in status.get("ocr_modes", []))
                     and {"force-ocr", "cancel-ocr", "edited-source"}.issubset(status.get("features", [])))
     except Exception:
         return False
@@ -167,7 +168,8 @@ def run(args) -> int:
         update("checking", "检查本地运行环境…")
         if not lease_valid(lease, instance):
             raise RuntimeError("Zotero 启动请求已失效，请重试")
-        if compatible_service(url):
+        requested_mode = getattr(args, "ocr_mode", None) or "official"
+        if compatible_service(url, requested_mode):
             update("ready", "服务已就绪", owned=False, service_url=url)
             return 0
         if getattr(args, "parent_pid", None):
@@ -183,6 +185,11 @@ def run(args) -> int:
                          "PAPERBRIDGE_OFFICIAL_ACCELERATOR", "PAPERBRIDGE_OFFICIAL_WSL_URL"):
                 env.pop(name, None)
         env.update(runtime_environment(getattr(args, "runtime_config", None)))
+        if requested_mode == "rapidocr":
+            env["PAPERBRIDGE_OCR_MODE"] = "rapidocr"
+            env["PAPERBRIDGE_OCR_DEVICE"] = "cpu"
+            if args.backend != "local":
+                raise RuntimeError("RapidOCR 版使用本地 CPU，请在设置中将后端改为 local")
         env["PAPERBRIDGE_WORKSPACE"] = str(Path(args.workspace).resolve() if args.workspace
                                           else Path(env.get("PAPERBRIDGE_WORKSPACE", root / "workspace")).resolve())
         if args.backend == "wsl":
@@ -226,7 +233,7 @@ def run(args) -> int:
         log_file = (log_dir / "paperloom-zotero.log").open("a", encoding="utf-8")
         job = WindowsJob()
         process = subprocess.Popen(
-            [sys.executable, "-m", "app.cli", "serve", "--port", str(port)],
+            [sys.executable, "-X", "utf8", "-m", "app.cli", "serve", "--port", str(port)],
             cwd=root, env=env, stdout=log_file, stderr=subprocess.STDOUT,
             # Suspend before assignment so even a fast venv launcher cannot
             # spawn an unowned grandchild between Popen and Job assignment.
@@ -240,7 +247,7 @@ def run(args) -> int:
                 raise RuntimeError("文档处理服务启动失败，请查看 log/paperloom-zotero.log")
             if not lease_valid(lease, instance):
                 raise RuntimeError("Zotero 已取消启动")
-            if compatible_service(url):
+            if compatible_service(url, requested_mode):
                 break
             time.sleep(.5)
         else:
@@ -274,6 +281,7 @@ if __name__ == "__main__":
     parser.add_argument("--backend", choices=["wsl", "local"], default="wsl" if os.name == "nt" else "local")
     parser.add_argument("--workspace")
     parser.add_argument("--runtime-config", help="Installer runtime descriptor")
+    parser.add_argument("--ocr-mode", choices=["official", "rapidocr"], default="official")
     parser.add_argument("--parent-pid", type=int, help="Owning Zotero main process")
     arguments = parser.parse_args()
     if not 1 <= arguments.port <= 65535:

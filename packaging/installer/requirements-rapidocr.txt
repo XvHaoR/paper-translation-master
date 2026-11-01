@@ -1,0 +1,16 @@
+# Full CPU document stack: layout + OCR + formulas + wired/wireless tables.
+rapid-doc[cpu]==0.9.11
+rapidocr==3.10.0
+onnxruntime==1.28.0
+python-dotenv==1.2.4
+PyMuPDF==1.28.0
+fastapi==0.141.1
+uvicorn==0.52.1
+websockets==17.2
+typer==0.27.1
+Jinja2==3.1.6
+Markdown==3.10.3
+pydantic==2.13.4
+Pillow==12.3.0
+bleach==6.4.0
+python-multipart==0.0.32

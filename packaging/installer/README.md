@@ -1,5 +1,15 @@
 # Windows OCR 安装器
 
+## 当前 RapidOCR 完整版 0.4.0
+
+下载 `paper-translation-master-rapidocr-setup-0.4.0.exe`。Windows 10/11 x64，CPU 即可，建议 8 GB 内存，至少 5 GB 磁盘空间。
+不检查 NVIDIA 或 WSL，不安装 PaddlePaddle GPU；安装 `requirements-rapidocr.txt` 的完整 RapidDoc/RapidOCR/ONNX 依赖。
+默认目录 `%LOCALAPPDATA%/PaperTranslationMasterRapidOCR`，不覆盖原 GPU 环境。
+安装自检在扫描 PDF 中验证文字、LaTeX 公式与结构化表格，三者缺一就不注册为成功。
+详见 [RapidOCR 版说明](../../docs/RAPIDOCR_EDITION.md)。
+
+以下是原 **PaddleOCR-VL 版 0.3.1** 的维护说明。
+
 面向 Windows 10/11 x64 + NVIDIA GPU 的图形安装器。下载 Release 中的
 `paper-translation-master-setup-0.3.1.exe`，双击，点击「安装 OCR 引擎」。
 用户不需要安装 Python、Git、WSL、Docker 或输入终端命令。

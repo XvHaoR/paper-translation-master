@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "论文翻译大师",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Zotero 内启动 OCR、管理识别和翻译状态、自动识别新文献，在 PDF 标签页对照阅读并离线保存。",
   "applications": {
     "zotero": {

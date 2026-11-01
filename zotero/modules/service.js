@@ -7,6 +7,7 @@
       try {
         const response = await Zotero.HTTP.request("GET", PL.serviceURL(url) + "/api/zotero/status", { timeout: 1500, responseType: "json" });
         return response.response?.protocol === 2 && response.response?.export_schema >= 7
+          && (PL.config.ocrMode !== "rapidocr" || response.response?.ocr_modes?.includes("rapidocr"))
           && ["force-ocr", "cancel-ocr", "edited-source"].every(feature => response.response?.features?.includes(feature));
       }
       catch (_) { return false; }
@@ -86,9 +87,10 @@
         this.heartbeatTimer = setInterval(() => this.heartbeat().catch(error => Zotero.logError(error)), 10000);
         const { Subprocess } = ChromeUtils.importESModule("resource://gre/modules/Subprocess.sys.mjs");
         this.owned = false;
-        const arguments_ = [PathUtils.join(root, "scripts", "zotero_service.py"), "--state-file", this.statePath,
+        const arguments_ = ["-X", "utf8", PathUtils.join(root, "scripts", "zotero_service.py"), "--state-file", this.statePath,
           "--lease-file", this.leasePath, "--instance", this.instance, "--port", new URL(PL.serviceURL()).port || "80",
-          "--backend", PL.pref("backend", this.runtime?.backend || PL.config.defaultBackend || "local"), "--parent-pid", String(Services.appinfo.processID)];
+          "--backend", PL.config.ocrMode === "rapidocr" ? "local" : PL.pref("backend", this.runtime?.backend || PL.config.defaultBackend || "local"), "--parent-pid", String(Services.appinfo.processID)];
+        if (PL.config.ocrMode === "rapidocr") arguments_.push("--ocr-mode", "rapidocr");
         if (this.runtime?.descriptor) arguments_.push("--runtime-config",this.runtime.descriptor);
         this.process = await Subprocess.call({ command: python, arguments: arguments_, workdir: root, stderr: "stdout" });
         const process = this.process;

@@ -10,15 +10,15 @@
 ## 安装
 
 1. 从 Releases 下载 `.xpi`，在 Zotero 的「工具 → 插件／附加组件 → 齿轮 → 从文件安装」中选择该文件，重启 Zotero。
-2. Windows 用户下载同一版本的 `paper-translation-master-setup-*.exe`，双击后点击「安装 OCR 引擎」。安装器自动准备独立 Python、OCR 依赖、模型，并执行真实识别自检；无需手装 Python、Git、WSL 或 Docker。
+2. Windows 用户下载同一版本的 `paper-translation-master-rapidocr-setup-*.exe`，双击后点击「安装 OCR 引擎」。安装器自动准备独立 Python、OCR、版面、公式与表格模型，并执行真实识别自检；无需手装 Python、Git、WSL 或 Docker。原 VL 版使用其历史发布的安装器。
 3. 安装完成后，打开 Zotero「工具 → 论文翻译大师 → 设置」，点击「检测已安装引擎」。正常情况下无需填写项目目录或 Python 路径。点击工具栏「启动 OCR」即可使用。
 4. 需要翻译时，在设置中填写自己的 OpenAI 兼容接口地址、模型和 API 密钥。OCR 本身不需要翻译 API；翻译服务的费用取决于所选服务商。
 
-首次安装需要联网下载数 GB 依赖和模型，时间取决于网络。之后重复安装会复用下载缓存；模型已下载后可本地 OCR。已保存结果无需引擎即可离线阅读。
+首次安装需要联网下载依赖和完整模型，预留至少 5 GB 磁盘空间，时间取决于网络。之后重复安装会复用下载缓存；模型已下载后可本地 OCR。已保存结果无需引擎即可离线阅读。
 
 ## 功能
 
-### 基于PaddleOCR-VL-1.6识别论文，将其转换为Markdown格式，并可手动编辑
+### 识别论文为可编辑的 Markdown：RapidOCR 完整 CPU 版，或原 PaddleOCR-VL 版
 <img width="2560" height="1380" alt="ad83ba8e7c8d211df8430f5a82c27d8d" src="https://github.com/user-attachments/assets/85ca4bdc-715e-4100-8b93-e84bb5876138" />
 
 ### 基于大模型翻译论文，支持对照阅读和纯翻译模式
@@ -42,15 +42,20 @@
 | 部分 | 当前范围 |
 | --- | --- |
 | Zotero 插件 | 面向 Zotero 7–10；原生界面回归测试使用 Windows 上的 Zotero 10.0.7 |
-| Windows 一键 OCR 安装器 | Windows 10／11 x64，NVIDIA GPU 至少 8 GB 显存、推荐 12 GB；CC 7.x–9.x，驱动至少 560.76 |
-| RTX 50 系列、其他 GPU、CPU | 不在首版自动安装器的支持范围；可自行按 PaddleOCR 官方文档配置 |
+| RapidOCR 0.4.0 一键安装器 | Windows 10／11 x64，CPU 即可，建议至少 8 GB 内存、5 GB 磁盘空间；无需 CUDA、WSL 或独立显卡 |
+| PaddleOCR-VL 0.3.1 历史安装器 | Windows 10／11 x64，NVIDIA GPU 至少 8 GB 显存、推荐 12 GB；CC 7.x–9.x，驱动至少 560.76 |
+| RTX 50 系列、其他 GPU | 可以使用 RapidOCR 版的 CPU 路径；不依赖 GPU 型号 |
 | Linux／macOS | 可尝试安装插件、阅读已保存结果；没有一键 OCR 安装包，未做完整平台验收 |
 | 已配置 WSL FastDeploy 的用户 | 保留高级设置中的 WSL 运行方式，可继续使用原有环境 |
 
-首版一键安装器为预览功能。已验证打包、硬件检查、下载校验和失败重试逻辑；全新 Windows GPU 环境的完整安装仍需进一步验收。不承诺所有显卡、网络条件和论文均有相同性能。
+一键安装器仍为预览功能，保留下载校验、失败重试与真实 PDF 自检。不同论文和设备的耗时与识别准确度不同；完整 CPU 识别不承诺总是比 GPU 版快。上述 RTX 3060 耗时是原 VL 版的用户实测。
 
 
 ## 从旧版本升级
+
+0.4.0 增加 [RapidOCR 完整文档版](docs/RAPIDOCR_EDITION.md)，CPU 即可使用，保留公式、表格、编辑、翻译及原文对照。
+下载名称含 `rapidocr` 的 XPI 与安装器；引擎使用独立目录，不覆盖原 VL 环境，已保存结果继续有效。
+原 PaddleOCR-VL 版 0.3.1 仍可从历史发布下载。CPU 版更容易配置，不承诺完整识别总是比 GPU 版快。
 
 0.3.1 修复新旧插件与改名后 OCR 页面混用时的段落定位，并拆分阅读通信、布局、外观、坐标与高亮。
 安装新版 XPI 并重启 Zotero 即可对照已有结果，无需重新 OCR 或翻译。

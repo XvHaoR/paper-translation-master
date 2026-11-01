@@ -31,7 +31,7 @@ class Settings:
     max_cache_documents: int = 100
     # OCR
     ocr_device: str = "auto"  # auto | cpu | gpu
-    ocr_mode: str = "official"  # official | auto | native | full | hybrid
+    ocr_mode: str = "official"  # official | rapidocr | auto | native | full | hybrid
     ocr_timeout_seconds: float = 600.0
     # 阅读顺序（READING_ORDER_TECHNICAL_DESIGN.md §13）
     reading_order: str = "model-first"  # model-first | legacy-geometric

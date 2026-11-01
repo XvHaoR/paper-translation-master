@@ -131,7 +131,7 @@ PAGE_LABEL_TYPES = {
 
 @dataclass
 class ConvertOptions:
-    ocr_mode: str = "official"  # official | auto | native | full | hybrid
+    ocr_mode: str = "official"  # official | rapidocr | auto | native | full | hybrid
     ocr_device: str = "auto"  # auto | cpu | gpu
     render_dpi: int = 220
     pages: str = ""  # 空 = 全部；支持 "1-5,8,10-12"
@@ -198,6 +198,8 @@ class Orchestrator:
         progress: ProgressFn | None = None,
     ) -> ConversionResult:
         opts = options or ConvertOptions()
+        if opts.ocr_mode not in {"official", "rapidocr", "auto", "native", "full", "hybrid"}:
+            return ConversionResult(errors=["不支持的 OCR 模式"])
         t0 = time.time()
         pdf_path = Path(pdf_path)
         result = ConversionResult()
@@ -230,7 +232,8 @@ class Orchestrator:
         ):
             try:
                 ir = DocumentIR.model_validate_json(ir_path.read_text(encoding="utf-8"))
-                if ir.document.parser.get("cache_version") != self._cache_version():
+                if (ir.document.parser.get("cache_version") != self._cache_version()
+                        or ir.document.parser.get("settings", {}).get("ocr_mode") != opts.ocr_mode):
                     logger.info("解析器缓存版本升级，旧文档重新解析")
                 else:
                     result.ok = True
@@ -258,6 +261,9 @@ class Orchestrator:
         if not original_pdf.is_file():
             shutil.copy2(pdf_path, original_pdf)
         self._prepare_static_assets(doc_dir)
+
+        if opts.ocr_mode == "rapidocr":
+            return self._convert_rapid(pdf_path, pre, pages, opts, doc_dir, result, report, t0)
 
         # 识别器可用性
         recognizer = self._resolve_recognizer(opts)
@@ -406,6 +412,40 @@ class Orchestrator:
         return result
 
     # ------------------------------------------------------------------
+
+    def _convert_rapid(self, pdf_path, pre, pages, opts, doc_dir, result, report, started_at):
+        from app.pipeline.rapid_document import RapidDocumentConverter, CACHE_VERSION, LIMITATIONS
+        settings = {"ocr_mode": "rapidocr", "render_dpi": opts.render_dpi, "pages": pages}
+        ir_path = doc_dir / "document.json"
+        try:
+            ir = None
+            if not opts.force and ir_path.is_file() and (doc_dir / "index.html").is_file():
+                cached = DocumentIR.model_validate_json(ir_path.read_text(encoding="utf-8"))
+                if (cached.document.parser.get("name") == "rapidocr"
+                        and cached.document.parser.get("cache_version") == CACHE_VERSION
+                        and cached.document.parser.get("settings") == settings):
+                    ir = cached
+                    result.warnings.append("命中 RapidOCR 缓存，直接复用已生成文档")
+            if ir is None:
+                # This separate converter never initializes the VL backend or
+                # runs its repairs. A single CPU session serves all batch jobs.
+                with self._recognizer_lock:
+                    if not hasattr(self, "_rapid_converter"):
+                        self._rapid_converter = RapidDocumentConverter()
+                ir = self._rapid_converter.convert(pdf_path, doc_dir, pre, pages, opts, report)
+                if not ir.blocks:
+                    raise RuntimeError("未生成任何内容块")
+                report("rendering_html", 0, "生成 RapidOCR 阅读页")
+                _atomic_write_text(doc_dir / "index.html", HtmlRenderer().render_document(ir, doc_dir))
+                _atomic_write_text(ir_path, ir.model_dump_json(indent=2))
+            result.ir, result.doc_dir, result.ok = ir, doc_dir, True
+            result.warnings.append(LIMITATIONS)
+            result.status = "needs_review" if result.review_needed else "ready"
+            report("done", len(pages), "RapidOCR 完成；结果已保存")
+        except Exception as error:
+            result.errors.append(f"RapidOCR 失败：{error}")
+        result.duration_ms = int((time.time() - started_at) * 1000)
+        return result
 
     def _convert_official(
         self,

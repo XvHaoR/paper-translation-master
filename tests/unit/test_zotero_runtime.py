@@ -71,6 +71,15 @@ assert.equal(task.lastBatch.finished,true);assert.equal(task.pending.size,0);
 """)
 
 
+def test_rapid_edition_uses_its_own_cpu_environment_even_with_old_gpu_preferences():
+    run_js(["runtime"], """
+PaperLoom.config={ocrMode:'rapidocr',runtimeDirectory:'PaperTranslationMasterRapidOCR'};
+PaperLoom.setPref('projectRoot','/old-gpu');PaperLoom.setPref('backend','wsl');
+PaperLoom.Runtime.installed=async()=>({projectRoot:'/rapid',pythonPath:'/rapid/python',backend:'local',descriptor:'/rapid/runtime.json'});
+const result=await PaperLoom.Runtime.resolve();assert.equal(result.projectRoot,'/rapid');assert.equal(result.backend,'local');
+""")
+
+
 def test_single_paper_batch_never_opens_a_reader():
     run_js(["tasks"], """
 const source={id:1,getField:()=> 'One paper'};

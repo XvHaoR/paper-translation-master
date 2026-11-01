@@ -40,7 +40,7 @@ def test_reuses_existing_service_without_taking_ownership(tmp_path, monkeypatch)
     lease = tmp_path / "lease.json"
     lease.write_text(json.dumps({"instance": "one", "time": 100}))
     monkeypatch.setattr(zotero_service.time, "time", lambda: 100)
-    monkeypatch.setattr(zotero_service, "compatible_service", lambda url: True)
+    monkeypatch.setattr(zotero_service, "compatible_service", lambda url, *args: True)
     monkeypatch.setattr(zotero_service, "acquire_lock", lambda root: (_ for _ in ()).throw(AssertionError("no new process")))
     args = SimpleNamespace(state_file=tmp_path / "state.json", lease_file=lease, instance="one", port=8765)
     assert zotero_service.run(args) == 0

@@ -733,6 +733,7 @@ startup = async function (...args) {
           const global=actualState.frame?.browsingContext?.currentWindowGlobal;
           if(global?.documentURI?.scheme!=="file")return false;
           const result=await global.getActor("PaperLoomSmoke").sendQuery("state");
+          report.actualContent=result;
           return result.mathCount>20&&result.paraFraction&&result.layout.compactStyle ? result:false;
         });
         report.actualContent=actualContent;
@@ -807,13 +808,20 @@ startup = async function (...args) {
         const crossY=crossOuter.top+crossFrame.top+crossBounds.top+crossBounds.height*.38;
         window.windowUtils.sendMouseEvent("mousedown",crossX,crossY,0,1,0);
         window.windowUtils.sendMouseEvent("mouseup",crossX,crossY,0,1,0);
-        await waitFor(async()=>(await actor.sendQuery("state")).selectedBlock===crossColumn.id);
-        check(true,"clicking the previously unmapped right-column continuation selects the whole OCR paragraph");
+        await waitFor(async()=>(await actor.sendQuery("state")).selectedBlock===(crossColumn.continuation?.id||crossColumn.id));
+        check(true,"clicking the right-column continuation selects its matching OCR paragraph");
         await actor.sendQuery("click",{selector:`[data-block-id="${crossColumn.id}"] [data-action="locate"]`});
-        await waitFor(()=>actualState.lastLocated?.block===crossColumn.id&&actualState.lastLocated.regions?.length>=2&&actualState.pdfHighlight?.isConnected);
+        await waitFor(()=>actualState.lastLocated?.block===crossColumn.id&&actualState.lastLocated.regions?.length>=(crossColumn.continuation?1:2)&&actualState.pdfHighlight?.isConnected);
         report.crossColumn=actualState.lastLocated;
-        check(actualState.lastLocated.regions.some(region=>region.page===2&&region.bbox[0]>.5&&region.bbox[1]>.28&&region.bbox[3]<.49)
-          &&actualState.pdfHighlight.querySelectorAll('rect').length>=2,"actual cross-column paragraph highlights both columns without enclosing the unrelated introduction text");
+        if(crossColumn.continuation){
+          check(actualState.lastLocated.regions.every(region=>region.page===2&&region.bbox[2]<.51),"separately segmented left-column paragraph keeps its own exact region");
+          await actor.sendQuery("click",{selector:`[data-block-id="${crossColumn.continuation.id}"] [data-action="locate"]`});
+          await waitFor(()=>actualState.lastLocated?.block===crossColumn.continuation.id&&actualState.pdfHighlight?.isConnected);
+          check(actualState.lastLocated.regions.some(region=>region.page===2&&region.bbox[0]>.5&&region.bbox[1]>.28&&region.bbox[3]<.49),"separately segmented continuation also highlights its matching right-column region");
+        }else{
+          check(actualState.lastLocated.regions.some(region=>region.page===2&&region.bbox[0]>.5&&region.bbox[1]>.28&&region.bbox[3]<.49)
+            &&actualState.pdfHighlight.querySelectorAll('rect').length>=2,"actual cross-column paragraph highlights both columns without enclosing the unrelated introduction text");
+        }
         await screenshot(window,smokeActualFigureScreenshotPath.replace("actual-figure.png","actual-cross-column.png"));
         if(smokeRealTranslation){
           const fixture=smokeRealTranslation;

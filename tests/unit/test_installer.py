@@ -136,6 +136,7 @@ def test_descriptor_written_only_after_actual_gpu_pdf_check(installer, monkeypat
     assert Path(descriptor["pythonPath"]).is_relative_to(instance.base)
     assert calls[-1][-2] == "--report"
     assert "../engine/scripts" in (instance.python.parent / "python313._pth").read_text(encoding="utf-8")
+    assert "import site" not in (instance.python.parent / "python313._pth").read_text(encoding="utf-8").splitlines()
     assert events[-1][0] == "ready"
     assert (instance.base / "runtime.json").is_file()
 
@@ -169,3 +170,31 @@ def test_cpu_report_is_not_advertised_as_ready(installer, monkeypatch):
     with pytest.raises(core.InstallError, match="实际识别自检"):
         instance.install()
     assert not (instance.base / "runtime.json").exists()
+
+
+def test_rapid_full_install_needs_no_gpu_but_requires_formula_and_table_self_test(installer, monkeypatch):
+    instance, events = installer
+    instance.mode = "rapidocr"
+    instance.release["ocrMode"] = "rapidocr"
+    monkeypatch.setattr(core.subprocess,"run",lambda *a,**kw: pytest.fail("CPU installer must never probe NVIDIA or WSL"))
+    calls=[]
+    def command(args,**kw):
+        calls.append(args)
+        if "--report" in args:
+            (instance.base/"warmup.json").write_text(json.dumps({"ok":True,"gpu":False,"pipeline":"RapidOCR","formulas":1,"tables":1}))
+    monkeypatch.setattr(instance,"run_command",command)
+    descriptor=instance.install()
+    assert descriptor["ocrMode"] == "rapidocr" and descriptor["gpu"] is None
+    assert descriptor["environment"]["PAPERBRIDGE_OCR_MODE"] == "rapidocr"
+    assert any(any("requirements-rapidocr.txt" in str(arg) for arg in args) for args in calls)
+    assert not any(any("paddlepaddle-gpu" in str(arg) for arg in args) for args in calls)
+
+
+def test_rapid_text_only_warmup_cannot_mark_a_full_install_successful(installer, monkeypatch):
+    instance,_=installer; instance.mode="rapidocr"
+    def command(args,**kw):
+        if "--report" in args:
+            (instance.base/"warmup.json").write_text('{"ok":true,"gpu":false,"pipeline":"RapidOCR"}')
+    monkeypatch.setattr(instance,"run_command",command)
+    with pytest.raises(core.InstallError,match="实际识别自检"):
+        instance.install()

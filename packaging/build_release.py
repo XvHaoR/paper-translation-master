@@ -28,7 +28,7 @@ RUNTIME_SCRIPTS = {"scripts/launcher.py", "scripts/zotero_service.py", "scripts/
                    "scripts/process_lifetime.py", "scripts/edit_saved_ocr.py", "scripts/runtime_config.py"}
 ROOT_FILES = {"pyproject.toml", "release.json", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"}
 SOURCE_ROOT_FILES = ROOT_FILES | {".gitignore"}
-PUBLIC_DOCS = {"docs/INSTALLATION.md", "docs/RELEASING.md", "docs/READER_ARCHITECTURE.md"}
+PUBLIC_DOCS = {"docs/INSTALLATION.md", "docs/RELEASING.md", "docs/READER_ARCHITECTURE.md", "docs/RAPIDOCR_EDITION.md"}
 PRIVATE_PATTERNS = [
     re.compile(rb"[A-Za-z]:[\\/]+(?:Users[\\/]+(?!Public(?:[\\/]|$)|Default(?:[\\/]|$))[^\\/\s\"']+[\\/]+|claude_test[\\/]+)", re.I),
     re.compile(rb"(?:sk-[A-Za-z0-9_-]{24,}|AIza[A-Za-z0-9_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,})"),
@@ -175,8 +175,10 @@ def build_release(*, root: Path = ROOT, output: Path | None = None,
         "- 下载 `.xpi`，在 Zotero → 工具 → 插件中选择从文件安装。\n"
         "- Windows 用户下载 `-setup-` 安装器；安装器自动准备独立 Python、OCR 依赖和模型，首次需要联网。\n"
         "- 在插件设置中填写自己的大模型 API 地址、模型名称及密钥，按需翻译。\n"
-        "- 已保存的 OCR 和译文可离线查看；批量处理在后台完成。\n\n"
-        "本版安装器支持 Windows 10/11 x64 + NVIDIA GPU（至少 8 GB 显存，推荐 12 GB；CC 7.x–9.x，驱动至少 560.76）。其他平台需自行配置 OCR。\n"
+        "- 已保存的 OCR 和译文可离线查看；批量处理在后台完成。\n\n" +
+        ("本版为 RapidOCR 完整文档版：Windows 10/11 x64，CPU 即可，建议至少 8 GB 内存，预留 5 GB 磁盘。无需 NVIDIA、CUDA 或 WSL。保留版面、行内/行间公式和表格模型。\n"
+         if release.get("ocrMode") == "rapidocr" else
+         "本版安装器支持 Windows 10/11 x64 + NVIDIA GPU（至少 8 GB 显存，推荐 12 GB；CC 7.x–9.x，驱动至少 560.76）。其他平台需自行配置 OCR。\n") +
         "已完成本机真实 PDF 识别自检；固定新环境从下载到安装的完整流程尚未在全新 Windows 系统完成验收，因此本次提供预览版。\n"
         "安装器暂未进行 Windows 代码签名，系统可能显示未知发布者。可用 SHA256SUMS 校验下载文件。\n"
         "首次模型下载和安装可能需要较长时间，安装窗口会显示进度及错误日志。\n",

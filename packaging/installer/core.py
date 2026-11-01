@@ -31,7 +31,8 @@ PADDLE_INDEX = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
 PADDLE_VERSION = "3.3.1"
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 ENV_KEYS = ("PAPERBRIDGE_WORKSPACE", "PADDLE_PDX_CACHE_HOME", "HF_HOME", "MODELSCOPE_CACHE",
-            "PAPERBRIDGE_OCR_PAGE_BATCH_SIZE", "PAPERBRIDGE_OCR_USE_QUEUES")
+            "PAPERBRIDGE_OCR_PAGE_BATCH_SIZE", "PAPERBRIDGE_OCR_USE_QUEUES",
+            "PAPERBRIDGE_OCR_MODE", "PAPERBRIDGE_RAPIDOCR_MODELS")
 
 
 class InstallError(RuntimeError):
@@ -147,12 +148,13 @@ def gpu_requirement(devices: list[dict]) -> dict:
                        "\n无需自行安装 CUDA 工具包。已有 OCR/译文仍可在 Zotero 中离线查看。")
 
 
-def runtime_environment(base: Path) -> dict[str, str]:
+def runtime_environment(base: Path, mode="official") -> dict[str, str]:
     return {"PAPERBRIDGE_WORKSPACE": str(base / "workspace"),
             "PADDLE_PDX_CACHE_HOME": str(base / "models" / "paddlex"),
             "HF_HOME": str(base / "models" / "huggingface"),
             "MODELSCOPE_CACHE": str(base / "models" / "modelscope"),
-            "PAPERBRIDGE_OCR_PAGE_BATCH_SIZE": "2", "PAPERBRIDGE_OCR_USE_QUEUES": "true"}
+            "PAPERBRIDGE_OCR_PAGE_BATCH_SIZE": "2", "PAPERBRIDGE_OCR_USE_QUEUES": "true",
+            "PAPERBRIDGE_OCR_MODE": mode, "PAPERBRIDGE_RAPIDOCR_MODELS": str(base / "models/rapidocr")}
 
 
 @contextmanager
@@ -183,8 +185,11 @@ class Installer:
         self.project = base / "engine"
         self.python = base / "python" / "python.exe"
         self.log = base / "install.log"
+        self.mode = release.get("ocrMode", "official")
+        if self.mode not in {"official", "rapidocr"}:
+            raise InstallError("无效的 OCR 安装版本")
         self.env = os.environ.copy()
-        self.env.update(runtime_environment(base))
+        self.env.update(runtime_environment(base, self.mode))
         self.env.update(PYTHONUTF8="1", PYTHONUNBUFFERED="1", PIP_DISABLE_PIP_VERSION_CHECK="1",
                         PIP_CACHE_DIR=str(base / "downloads" / "pip"), PIP_NO_INPUT="1")
         self.env.pop("PYTHONPATH", None)
@@ -201,6 +206,10 @@ class Installer:
     def run_command(self, arguments: list[str], timeout=1200, cwd=None, echo=True):
         if self.cancel.is_set():
             raise Cancelled("安装已取消；可再次运行安装器继续")
+        # Isolated embedded Python ignores PYTHONUTF8; pass the explicit flag
+        # so Chinese progress and error messages remain readable in the GUI.
+        if arguments and str(arguments[0]) == str(self.python):
+            arguments = [arguments[0], "-X", "utf8", *arguments[1:]]
         # A Job object owns pip and model-worker descendants when frozen/setup exits.
         # Parent process helper is part of the engine payload, imported only after extraction.
         job = None
@@ -275,27 +284,27 @@ class Installer:
                 raise
 
     def _install(self):
-        self.status("checking", "1/6 检查 Windows、显卡及可用空间…", 2)
+        rapid = self.mode == "rapidocr"
+        self.status("checking", "1/6 检查 Windows 及可用空间…" if rapid else "1/6 检查 Windows、显卡及可用空间…", 2)
         if not windows_x64():
             raise InstallError("此安装器仅支持 Windows 10/11 64 位（x64）")
         if platform.version().split(".")[-1].isdigit() and int(platform.version().split(".")[-1]) < 19041:
             raise InstallError("需要 Windows 10 2004（19041）或更新系统")
-        try:
-            result = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total,driver_version,compute_cap",
-                                     "--format=csv,noheader,nounits"], capture_output=True, text=True,
-                                    timeout=20, creationflags=NO_WINDOW)
-        except (OSError, subprocess.SubprocessError) as error:
-            raise InstallError("没有检测到 NVIDIA 驱动。请先安装 NVIDIA 驱动后重试。") from error
-        gpu = gpu_requirement(parse_gpu(result.stdout))
-        try:
-            wsl = subprocess.run(["wsl.exe", "--status"], capture_output=True, timeout=10, creationflags=NO_WINDOW)
-            has_wsl = wsl.returncode == 0
-        except (OSError, subprocess.SubprocessError):
-            has_wsl = False
-        self.notify("detail", f"显卡：{gpu['name']} / {gpu['memoryMB'] // 1024} GB；"
-                    f"WSL：{'已安装' if has_wsl else '未安装'}（本安装器使用原生 Windows，无需 WSL）", None)
-        if shutil.disk_usage(self.base).free < 15 * 1024 ** 3:
-            raise InstallError("安装盘至少需要 15 GB 可用空间（依赖、模型及下载缓存）；建议保留 25 GB")
+        gpu = None
+        if rapid:
+            self.notify("detail", "RapidOCR + ONNX Runtime CPU：无需 NVIDIA、CUDA 或 WSL", None)
+        else:
+            try:
+                result = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total,driver_version,compute_cap",
+                                         "--format=csv,noheader,nounits"], capture_output=True, text=True,
+                                        timeout=20, creationflags=NO_WINDOW)
+            except (OSError, subprocess.SubprocessError) as error:
+                raise InstallError("没有检测到 NVIDIA 驱动。请先安装 NVIDIA 驱动后重试。") from error
+            gpu = gpu_requirement(parse_gpu(result.stdout))
+            self.notify("detail", f"显卡：{gpu['name']} / {gpu['memoryMB'] // 1024} GB", None)
+        required_gb = 5 if rapid else 15
+        if shutil.disk_usage(self.base).free < required_gb * 1024 ** 3:
+            raise InstallError(f"安装盘至少需要 {required_gb} GB 可用空间（依赖、模型及下载缓存）")
 
         self.status("engine", "2/6 解压文档处理引擎…", 8)
         # A failed repair must not continue advertising the half-updated engine.
@@ -326,12 +335,14 @@ class Installer:
         safe_extract(python_zip, self.python.parent)
         safe_extract(pip_zip, self.python.parent / "Lib/site-packages")
         (self.python.parent / "python313._pth").write_text(
-            "python313.zip\n.\nLib/site-packages\n../engine\n../engine/scripts\nimport site\n", encoding="utf-8")
+            "python313.zip\n.\nLib/site-packages\n../engine\n../engine/scripts\n"
+            "# Explicit private paths; do not import site or load the user's packages.\n", encoding="utf-8")
 
-        self.status("dependencies", "4/6 下载 OCR 依赖（数 GB，期间可能较慢）…", 28)
-        self.run_command([str(self.python), "-m", "pip", "install", "--prefer-binary", "--retries", "3",
-                          "--timeout", "60", f"paddlepaddle-gpu=={PADDLE_VERSION}", "--index-url", PADDLE_INDEX], timeout=3600)
-        requirements = self.project / "packaging/installer/requirements-runtime.txt"
+        self.status("dependencies", "4/6 下载 RapidOCR CPU 依赖…" if rapid else "4/6 下载 OCR 依赖（数 GB，期间可能较慢）…", 28)
+        if not rapid:
+            self.run_command([str(self.python), "-m", "pip", "install", "--prefer-binary", "--retries", "3",
+                              "--timeout", "60", f"paddlepaddle-gpu=={PADDLE_VERSION}", "--index-url", PADDLE_INDEX], timeout=3600)
+        requirements = self.project / "packaging/installer" / ("requirements-rapidocr.txt" if rapid else "requirements-runtime.txt")
         self.run_command([str(self.python), "-m", "pip", "install", "--prefer-binary", "--retries", "3",
                           "--timeout", "60", "--index-url", "https://pypi.org/simple", "-r", str(requirements)], timeout=3600)
         self.run_command([str(self.python), "-m", "pip", "check"], timeout=60)
@@ -344,13 +355,15 @@ class Installer:
             report = json.loads((self.base / "warmup.json").read_text(encoding="utf-8"))
         except (OSError, ValueError) as error:
             raise InstallError("模型预热未返回有效报告，未标记为安装成功，请重试") from error
-        if report.get("ok") is not True or report.get("gpu") is not True:
+        if (report.get("ok") is not True or
+                (rapid and (report.get("pipeline") != "RapidOCR" or report.get("formulas", 0) < 1 or report.get("tables", 0) < 1)) or
+                (not rapid and report.get("gpu") is not True)):
             raise InstallError("模型实际识别自检未通过，未标记为安装成功，请查看安装日志")
 
         self.status("registering", "6/6 注册 Zotero 可发现的本地引擎…", 96)
         descriptor = {"schema": 1, "version": self.release["version"], "name": self.release["name"],
                       "projectRoot": str(self.project), "pythonPath": str(self.python), "backend": "local",
-                      "wslDistro": None, "environment": runtime_environment(self.base),
+                      "wslDistro": None, "environment": runtime_environment(self.base, self.mode), "ocrMode": self.mode,
                       "installedAt": time.time(), "warmup": report, "gpu": gpu}
         atomic_json(self.base / "runtime.json", descriptor)
         self.status("ready", "安装完成。请在 Zotero 安装插件并重启，之后可直接点击 OCR。", 100)

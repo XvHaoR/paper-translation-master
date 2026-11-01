@@ -71,7 +71,7 @@ def _print_result(r: ConversionResult, json_out: bool) -> None:
 def convert(
     pdf: Path = typer.Argument(..., help="论文 PDF 路径", exists=True),
     ocr_mode: str = typer.Option(
-        "official", "--ocr-mode", help="official | auto | native | full | hybrid",
+        "official", "--ocr-mode", help="official | rapidocr | auto | native | full | hybrid",
         show_default=True,
     ),
     device: str = typer.Option("auto", "--device", help="auto | cpu | gpu"),

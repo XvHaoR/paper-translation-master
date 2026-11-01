@@ -1,5 +1,14 @@
 # 安装论文翻译大师
 
+## RapidOCR 完整版 0.4.0
+
+新增的 CPU 版保留版面、公式和表格识别，以及 LaTeX 复制、Excel 导出、Markdown 编辑、翻译与 PDF 对照。
+下载 `paper-translation-master-rapidocr-setup-0.4.0.exe` 安装引擎，再安装 `paper-translation-master-rapidocr-0.4.0.xpi` 并重启 Zotero。
+Windows 10/11 x64、CPU 即可，建议 8 GB 内存与 5 GB 磁盘空间；无需 NVIDIA、CUDA 或 WSL。
+完整模型需要首次下载，安装过程会验证扫描 PDF 的文字、公式与表格。详见 [RapidOCR 版说明](RAPIDOCR_EDITION.md)。
+
+以下保留的是 **PaddleOCR-VL 版 0.3.1** 的安装方法，适用于原 GPU 版本。
+
 下载地址：[GitHub Releases](https://github.com/XvHaoR/paper-translation-master/releases)。
 当前 `0.3.1` 是预览版，请在发布页下载，不要使用 GitHub 的“latest”地址寻找预览版。
 

@@ -29,6 +29,7 @@ def main():
     parser.add_argument("--real-ocr-fixture", type=Path, help="Optional saved artifact/PDF metadata for real-paper rendering checks")
     parser.add_argument("--real-translation-fixture", type=Path, help="Optional cache-only translated artifact for real bilingual checks")
     parser.add_argument("--quit-backend", choices=["local", "wsl"], default="local")
+    parser.add_argument("--ocr-mode", choices=["official", "rapidocr"], default="official")
     args = parser.parse_args()
     run = ROOT / "workspace" / "zotero-smoke" / time.strftime("%Y%m%d-%H%M%S")
     profile = run / "profile"
@@ -223,7 +224,7 @@ def main():
             for path in (ROOT / "zotero" / folder).iterdir():
                 if path.is_file():
                     bundle.write(path, f"{folder}/{path.name}")
-        bundle.writestr("config.json", json.dumps({"projectRoot": str(ROOT), "pythonCandidates": [sys.executable], "defaultBackend": "local"}))
+        bundle.writestr("config.json", json.dumps({"projectRoot": str(ROOT), "pythonCandidates": [sys.executable], "defaultBackend": "local", "ocrMode": args.ocr_mode}))
         bundle.write(ROOT / "app" / "static" / "table_excel.js", "content/table-excel.js")
         bundle.write(ROOT / "app" / "static" / "offline_reader.css", "content/reader.css")
         bundle.writestr("smoke-actor.mjs", '''export class PaperLoomSmokeChild extends JSWindowActorChild {
@@ -279,14 +280,23 @@ def main():
     if(message.name==='cross-column'){
       const section=Array.from(this.document.querySelectorAll('.pl-block')).find(node=>Number(node.dataset.page)===2&&(node.querySelector('.pl-source')||node.querySelector('.pl-target'))?.textContent.startsWith('A key plant trait'));
       if(!section)throw new Error('Actual cross-column paragraph not found');
-      return {id:section.dataset.blockId,bbox:JSON.parse(section.dataset.bbox),page:2};
+      const continuation=Array.from(this.document.querySelectorAll('.pl-block[data-page="2"]')).find(node=>
+        node!==section&&JSON.parse(node.dataset.bbox||'[]')[0]>.5&&node.textContent.includes('The LAI of young and mature leaves increased'));
+      return {id:section.dataset.blockId,bbox:JSON.parse(section.dataset.bbox),page:2,
+        continuation:continuation?{id:continuation.dataset.blockId,bbox:JSON.parse(continuation.dataset.bbox)}:null};
     }
     if (view.MathJax?.startup?.promise) await view.MathJax.startup.promise;
-    const para=Array.from(this.document.querySelectorAll('.math-display')).find(node=>(node.getAttribute('data-latex')||'').includes('Para='));
+    const texIdentity=value=>Array.from(value.replaceAll(String.fromCharCode(92)+'mathrm','')
+      .replaceAll(String.fromCharCode(92)+'textrm','').replaceAll(String.fromCharCode(92)+'text',''))
+      .filter(c=>c.charCodeAt(0)>32&&c!=='{'&&c!=='}').join('');
+    const para=Array.from(this.document.querySelectorAll('.math-display')).find(node=>texIdentity(node.getAttribute('data-latex')||'').includes('Para='));
     const figure1=Array.from(this.document.querySelectorAll('main img')).find(node=>node.getAttribute('alt')==='图 4');
     const caption5=Array.from(this.document.querySelectorAll('main p')).find(node=>node.textContent.startsWith('Figure 5.'));
     if(message.name==='scroll'){
-      (message.data.kind==='formula'?para:message.data.kind==='caption'?caption5:figure1)?.scrollIntoView({block:'center'});
+      const target=message.data.kind==='formula'?para:message.data.kind==='caption'?caption5:figure1;
+      const section=target?.closest('.pl-block');
+      if(section)view.PaperLoomOffline.select(section,false);
+      target?.scrollIntoView({block:'center'});
       await new Promise(resolve=>this.contentWindow.setTimeout(resolve,300));
     }
     return {hasMain: !!this.document.querySelector("main"), text: this.document.body?.textContent?.slice(0, 3000),

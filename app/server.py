@@ -402,7 +402,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     translator_cache = TranslateCache(settings.workspace / "translate-cache.json")
 
-    app = FastAPI(title="论文翻译大师", version="0.3.0")
+    app = FastAPI(title="论文翻译大师", version="0.4.0")
     from app.services.browser_sessions import BrowserSessions
 
     sessions = BrowserSessions()
@@ -455,14 +455,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/jobs")
     async def create_job(
         upload: UploadFile = File(...),
-        ocr_mode: str = Form("official"),
+        ocr_mode: str = Form(""),
         device: str = Form("auto"),
         force: bool = Form(False),
     ):
         pdf_path = _save_upload(upload, settings)
         job_id = jobs.create(
             pdf_path,
-            ConvertOptions(ocr_mode=ocr_mode, ocr_device=device, force=force),
+            ConvertOptions(ocr_mode=ocr_mode or settings.ocr_mode, ocr_device=device, force=force),
         )
         return {"job_id": job_id, "state": "queued"}
 
@@ -634,7 +634,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/zotero/status")
     async def zotero_status():
         return {"ok": True, "protocol": 2, "export_schema": 7,
-                "features": ["ocr-export", "translations", "offline-reader", "force-ocr", "cancel-ocr", "edited-source"]}
+                "features": ["ocr-export", "translations", "offline-reader", "force-ocr", "cancel-ocr", "edited-source"],
+                "ocr_modes": ["official", "auto", "native", "full", "hybrid"] +
+                    (["rapidocr"] if __import__("importlib.util", fromlist=["find_spec"]).find_spec("rapid_doc") else [])}
 
     @app.post("/api/documents/{doc_id}/edited-source")
     async def edited_source(doc_id: str, revision: str = Form(...), upload: UploadFile = File(...)):
@@ -867,14 +869,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if dest.read_bytes()[:5] != b"%PDF-":
             dest.unlink(missing_ok=True)
             raise HTTPException(400, "下载内容不是有效 PDF")
-        job_id = jobs.create(dest, ConvertOptions(ocr_mode="official"))
+        job_id = jobs.create(dest, ConvertOptions(ocr_mode=settings.ocr_mode))
         return {"ok": True, "job_id": job_id}
 
     @app.post("/api/browser/upload")
     async def browser_upload(request: Request, upload: UploadFile = File(...)):
         _require_token(request)
         pdf_path = _save_upload(upload, settings)
-        job_id = jobs.create(pdf_path, ConvertOptions(ocr_mode="official"))
+        job_id = jobs.create(pdf_path, ConvertOptions(ocr_mode=settings.ocr_mode))
         return {"ok": True, "job_id": job_id}
 
     @app.get("/api/browser/jobs/{job_id}")

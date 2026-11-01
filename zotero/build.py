@@ -50,6 +50,7 @@ def build(*, portable: bool = False, output: Path | None = None,
         # Preserve the add-on ID, preferences and chrome namespace for upgrades.
         config = {"projectRoot": "", "pythonCandidates": [], "defaultBackend": "local",
                   "runtimeDirectory": release["runtimeDirectory"],
+                  "ocrMode": release.get("ocrMode", "official"),
                   "releaseURL": f"https://github.com/{release['repository']}/releases",
                   "releaseVersion": release["version"], "displayName": release["name"]}
         filename = f"{release['slug']}-{manifest['version']}.xpi"
