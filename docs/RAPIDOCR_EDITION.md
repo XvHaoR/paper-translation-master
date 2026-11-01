@@ -1,7 +1,11 @@
 # RapidOCR 完整文档版
 
-0.4.0 是可替换安装的 CPU 版插件。保留 Zotero 插件身份、已保存 OCR/译文附件、编辑与阅读协议。
-0.3.1 的 PaddleOCR-VL 版继续在历史发布中提供；两个版本使用各自的引擎目录。
+当前 CPU 版为 [0.4.1](https://github.com/XvHaoR/paper-translation-master/releases/tag/v0.4.1)，保留 Zotero 插件身份、已保存 OCR/译文附件、编辑与阅读协议。
+PaddleOCR-VL 版 [0.3.2](https://github.com/XvHaoR/paper-translation-master/releases/tag/v0.3.2) 单独提供；两个版本使用各自的引擎目录。
+
+0.4.1 修复了 OCR 阻塞翻译的问题：一篇 OCR 完成后，可在其他论文继续识别时翻译并保存。
+同一篇论文仍按提交顺序处理，取消单项任务不停止其他论文使用的共享服务。
+0.4.0 用户只需更新 XPI 并重启 Zotero，无需重装 CPU 引擎、重新下载模型或重新 OCR 已保存结果。
 
 ## 识别功能
 
@@ -21,8 +25,8 @@
 
 ## 安装
 
-1. 从发布页下载 `paper-translation-master-rapidocr-setup-0.4.0.exe`，安装独立 OCR 引擎。
-2. 在 Zotero 插件管理器安装 `paper-translation-master-rapidocr-0.4.0.xpi` 并重启。
+1. 首次安装下载 [RapidOCR 引擎安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.4.1/paper-translation-master-rapidocr-setup-0.4.1.exe)，安装独立 OCR 引擎；已装好 0.4.0 引擎可跳过。
+2. 在 Zotero 插件管理器安装 [RapidOCR 0.4.1 XPI](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.4.1/paper-translation-master-rapidocr-0.4.1.xpi) 并重启。
 3. 打开设置检测引擎并保存；按需配置自己的翻译服务。已有 OCR 和译文可直接查看。
 
 安装器适用于 Windows 10 2004+／Windows 11 x64，CPU 即可，无需独立显卡、NVIDIA 驱动、CUDA、WSL 或系统 Python。
@@ -53,6 +57,10 @@ python -m app.cli serve --host 127.0.0.1 --port 8765
 后端适配不改动字体、阅读通信、PDF 坐标匹配、翻译或 Excel 模块。
 测试覆盖模型能力开关、图注分类、公式/表格载荷、任意页码映射、缓存隔离、完整性失败、CPU 安装自检与旧 GPU 偏好。
 原生 Zotero 测试可通过 `python tests/zotero/run_smoke.py --ocr-mode rapidocr` 运行。
+
+0.4.1 通过 317 项自动测试与 153 项原生 Zotero 检查。在隔离文献库中暂停第二篇 OCR 时，
+第一篇译文仍能通过翻译接口生成并保存；同时验证段落对照、字号、公式复制、Excel 导出与退出清理。
+本次更新沿用 0.4.0 的完整识别模型与安装环境。
 
 0.4.0 已在 Windows 上的独立 CPython 3.13 环境完成真实安装与模型自检，并通过 310 项自动测试、151 项原生 Zotero 检查。
 本机 AMD Ryzen 9 9900X 仅用 CPU，完整解析一份 22 页论文约 124 秒（包含行内公式，输出 13 个行间公式及图文内容）。

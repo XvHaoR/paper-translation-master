@@ -1,28 +1,30 @@
 # 安装论文翻译大师
 
-## RapidOCR 完整版 0.4.0
+## RapidOCR 完整版 0.4.1
 
 新增的 CPU 版保留版面、公式和表格识别，以及 LaTeX 复制、Excel 导出、Markdown 编辑、翻译与 PDF 对照。
-下载 `paper-translation-master-rapidocr-setup-0.4.0.exe` 安装引擎，再安装 `paper-translation-master-rapidocr-0.4.0.xpi` 并重启 Zotero。
+首次安装下载 [RapidOCR 引擎安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.4.1/paper-translation-master-rapidocr-setup-0.4.1.exe) 安装引擎，再安装 [RapidOCR 0.4.1 XPI](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.4.1/paper-translation-master-rapidocr-0.4.1.xpi) 并重启 Zotero。
+**已有 0.4.0 的用户只需更新 XPI，无需重新安装引擎或下载模型。** 0.4.1 允许已完成 OCR 的论文在其他论文继续识别时翻译并保存。
 Windows 10/11 x64、CPU 即可，建议 8 GB 内存与 5 GB 磁盘空间；无需 NVIDIA、CUDA 或 WSL。
 完整模型需要首次下载，安装过程会验证扫描 PDF 的文字、公式与表格。详见 [RapidOCR 版说明](RAPIDOCR_EDITION.md)。
 
-以下保留的是 **PaddleOCR-VL 版 0.3.1** 的安装方法，适用于原 GPU 版本。
+以下为 **PaddleOCR-VL 版 0.3.2** 的安装方法，适用于原 GPU 版本。两版均包含 OCR 与翻译的队列修复。
 
 下载地址：[GitHub Releases](https://github.com/XvHaoR/paper-translation-master/releases)。
-当前 `0.3.1` 是预览版，请在发布页下载，不要使用 GitHub 的“latest”地址寻找预览版。
+当前两个版本均为预览版，请在对应发布页下载，不要使用 GitHub 的“latest”地址寻找预览版。
 
 ## 1. 安装 Zotero 插件
 
-下载 `paper-translation-master-0.3.1.xpi`，在 Zotero 中打开「工具 → 插件／附加组件」，
+下载 [PaddleOCR-VL 0.3.2 XPI](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.3.2/paper-translation-master-0.3.2.xpi)，在 Zotero 中打开「工具 → 插件／附加组件」，
 点击齿轮，选择「从文件安装」，选中 XPI，完成后重启 Zotero。
 
+已有 0.3.1 且引擎可正常使用的用户，到此即完成升级，无需执行下方的引擎安装。
 此前安装过 PaperLoom 的用户也按此步骤替换。内部 ID 和附件标签保留，
 已有识别结果、译文、字号和外观设置继续使用；不要手动删除原插件的数据目录。
 
 ## 2. 安装 OCR 引擎
 
-Windows 下载 `paper-translation-master-setup-0.3.1.exe`，双击，点击「安装 OCR 引擎」。
+Windows 首次安装下载 [PaddleOCR-VL 引擎安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.3.2/paper-translation-master-setup-0.3.2.exe)，双击，点击「安装 OCR 引擎」。
 插件设置中的「下载 OCR 安装器」也会打开同一个发布页。
 
 自动安装器支持：

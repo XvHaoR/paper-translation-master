@@ -2,13 +2,14 @@
   "name": "论文翻译大师 · RapidOCR",
   "slug": "paper-translation-master-rapidocr",
   "runtimeDirectory": "PaperTranslationMasterRapidOCR",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "ocrMode": "rapidocr",
   "repository": "XvHaoR/paper-translation-master",
   "prerelease": true,
   "changes": [
-    "RapidOCR 完整文档版：RapidDoc 配套版面、公式与表格模型，CPU 即可使用，无需 CUDA 或 NVIDIA。",
-    "保留公式 LaTeX、表格 Excel、Markdown 编辑、批量 OCR/翻译、PDF 段落对照及已保存结果。",
-    "使用独立引擎安装目录，首次安装必须通过扫描 PDF 的文字、公式和表格识别自检。"
+    "修复 RapidOCR 0.4.0 的 OCR 与翻译共用串行队列问题：已识别论文可在其他论文继续 OCR 时翻译并保存。",
+    "同一 PDF 按提交顺序执行；取消单篇任务不停止共享服务，工具栏同时显示 OCR 和翻译进度。",
+    "保留完整文字、版面、公式和表格识别，以及 Markdown 编辑、PDF 段落对照和已保存结果。",
+    "0.4.0 用户仅需更新 XPI 并重启 Zotero，无需重装引擎或重新下载模型；README 新增两版直接下载与升级说明。"
   ]
 }
