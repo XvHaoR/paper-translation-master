@@ -16,6 +16,17 @@ core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)
 
 
+def test_combined_release_keeps_cpu_and_gpu_installer_identities_separate():
+    spec=importlib.util.spec_from_file_location("installer_builder",ROOT/"packaging/installer/build.py")
+    builder=importlib.util.module_from_spec(spec);spec.loader.exec_module(builder)
+    release=json.loads((ROOT/'release.json').read_text(encoding='utf-8'))
+    gpu=builder.edition_release(release,'default');cpu=builder.edition_release(release,'rapidocr')
+    assert gpu['runtimeDirectory']=='PaperTranslationMaster'
+    assert cpu['runtimeDirectory']=='PaperTranslationMasterRapidOCR' and cpu['ocrMode']=='rapidocr'
+    assert cpu['version']==gpu['version']=='0.5.0'
+    assert cpu['slug']!=gpu['slug']
+
+
 def write_zip(path, files):
     with zipfile.ZipFile(path, "w") as archive:
         for key, value in files.items():

@@ -20,6 +20,7 @@ jobs:
         with:
           node-version: '22'
       - run: python -m pip install -e ".[dev]" pyinstaller==6.21.0
+      - run: npm ci --prefix tests/dom
       - run: python -m pytest tests/unit tests/integration -q
       - name: Build portable packages and Windows installer
         shell: pwsh

@@ -1,0 +1,6 @@
+{
+  "name": "paper-reader-dom-tests",
+  "private": true,
+  "scripts": { "test": "node paper-layout.cjs" },
+  "devDependencies": { "jsdom": "26.1.0" }
+}

@@ -25,15 +25,26 @@ _LATEX_INR_RE = re.compile(r"\\inR(?![a-zA-Z])")
 _LATEX_MATHCMD_SPACE_RE = re.compile(r"\\(mathrm|operatorname)\{([^{}]*)\}")
 
 _BARE_SCRIPT_RE = re.compile(
-    r"(?<![\w\\/$])(?:\\[A-Za-z]+|[A-Za-z][A-Za-z0-9]{0,15})"
+    r"(?<![\w\\/$])(?:\d+\s*/\s*)?(?:\\[A-Za-z]+|[A-Za-z][A-Za-z0-9]{0,15})"
     r"(?:[_^]\{(?:[^{}\n]|\{[^{}\n]*\}){1,80}\})+"
+)
+_BARE_NUMERIC_SCRIPT_RE = re.compile(
+    r"(?<![\w\\/$])(?P<base>\\[A-Za-z]+|[A-Za-z][A-Za-z0-9]{0,15})"
+    r"(?P<scripts>(?:[_^][-+]?\d{1,3})+)(?![\w_^{}])"
 )
 _MARKDOWN_PROTECTED_RE = re.compile(
     r"(```.*?```|~~~.*?~~~|`+[^`\n]*`+|\$\$.*?\$\$|(?<!\\)\$(?!\$)[^$\n]+\$"
     r"|\\\(.*?\\\)|\\\[.*?\\\]|!?\[[^\]\n]*\]\([^\n)]*\)"
-    r"|https?://[^\s<>]+|<(?:pre|code)\b[^>]*>.*?</(?:pre|code)>|<[^>]+>|(?<!\\)\$[^\n$]*)",
+    r"|https?://[^\s<>]+|<(?:pre|code)\b[^>]*>.*?</(?:pre|code)>"
+    r"|<(?:!--.*?--|/?[A-Za-z][A-Za-z0-9:-]*(?=[\s/>])[^>]*|![A-Za-z][^>]*)>"
+    r"|(?<!\\)\$[^\n$]*)",
     re.DOTALL | re.IGNORECASE,
 )
+
+
+def markdown_protected_ranges(text: str) -> list[tuple[int, int]]:
+    """Ranges whose literal contents must not be interpreted as missing math."""
+    return [(match.start(), match.end()) for match in _MARKDOWN_PROTECTED_RE.finditer(text)]
 
 
 def normalize_bare_math(text: str) -> str:
@@ -61,6 +72,20 @@ def normalize_bare_math(text: str) -> str:
                 return value  # Repeated scripts are not a valid TeX atom.
             return f"${value}$"
         pieces[index] = _BARE_SCRIPT_RE.sub(repair, pieces[index])
+        def numeric(match: re.Match) -> str:
+            base, scripts = match.group('base', 'scripts')
+            if re.match(r"\.[A-Za-z0-9]{1,8}\b", pieces[index][match.end():]):
+                return match.group(0)
+            # Short variables/units and chemical abbreviations are explicit
+            # enough; ordinary snake_case identifiers are not math evidence.
+            chemical = re.fullmatch(r"[a-z]?[A-Z][A-Z0-9]{0,7}", base)
+            if not (base.startswith('\\') or len(base)<=2 or chemical):
+                return match.group(0)
+            if scripts.count('_')>1 or scripts.count('^')>1:
+                return match.group(0)
+            scripts = re.sub(r"([_^])([-+]?\d+)", r"\1{\2}", scripts)
+            return '$'+base+scripts+'$'
+        pieces[index] = _BARE_NUMERIC_SCRIPT_RE.sub(numeric, pieces[index])
     return "".join(pieces)
 
 

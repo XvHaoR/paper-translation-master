@@ -11,7 +11,12 @@
       let saved = await PL.Store.saved(source, "ocr");
       if (!saved) throw new Error("请先生成 OCR 版本");
       const path = await saved.attachment.getFilePathAsync();
-      if (!await IOUtils.exists(PathUtils.join(PathUtils.parent(path), "editor.json"))) saved = await this.save(reader, {}, false);
+      const directory = PathUtils.parent(path);
+      const manifest = await IOUtils.readJSON(PathUtils.join(directory,"manifest.json"));
+      // Refresh saved editing controls locally; keep their correction overlay
+      // and original IDs instead of sending an old paper through OCR again.
+      if (Number(manifest.schema || 0) < (PL.config?.minimumExportSchema || 7) ||
+          !await IOUtils.exists(PathUtils.join(directory, "editor.json"))) saved = await this.save(reader, {}, false);
       await PL.ReaderUI.showSaved(reader, saved, "ocr");
       const state = PL.ReaderUI.states.get(reader);
       const deadline = Date.now() + 5000;

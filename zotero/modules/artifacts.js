@@ -2,6 +2,37 @@
 (() => {
   const PL = PaperLoom;
   PL.Artifacts = {
+    async exportHTML(window, state) {
+      if (!state.saved || !state.frame?.browsingContext?.currentWindowGlobal) throw new Error("请先打开已保存的 OCR 或译文");
+      const snapshot = state.saved;
+      const file = await this.pickSaveFile(window, "导出论文 HTML", "paper-article.html", "HTML 阅读页", "*.html");
+      if (!file) return false;
+      if (state.saved !== snapshot) throw new Error("阅读窗口已更新，请重新导出 HTML");
+      const path = typeof file === "string" ? file : file.path;
+      const parent = PathUtils.parent(path);
+      const base = PathUtils.filename(path).replace(/\.html?$/i, "").replace(/[^\p{L}\p{N} ._-]/gu, "_").trim().slice(0, 100) || "paper";
+      let name = `${base}_files`, destination = PathUtils.join(parent, name), suffix = 1;
+      while (await IOUtils.exists(destination)) { name = `${base}_files_${++suffix}`; destination = PathUtils.join(parent, name); }
+      const page = await PL.ReaderUI.readerActor(state.frame.browsingContext.currentWindowGlobal)
+        .sendQuery("paper-export", {assets:encodeURIComponent(name)});
+      if (typeof page !== "string" || page.length > 20 * 1024 * 1024) throw new Error("HTML 页面内容无效或过大");
+      const saved = await snapshot.attachment.getFilePathAsync();
+      if (!saved) throw new Error("保存的 OCR 或译文尚未下载");
+      const directory = PathUtils.parent(saved);
+      await IOUtils.makeDirectory(destination);
+      await Zotero.File.copyDirectory(PathUtils.join(directory, "assets"), destination);
+      for (const [target, resource] of [["paper-reader.js", "paper-reader.js"], ["paper-reader.css", "reader.css"]]) {
+        await IOUtils.writeUTF8(PathUtils.join(destination, target), await Zotero.File.getResourceAsync(PL.rootURI + "content/" + resource));
+      }
+      for (const markdown of ["ocr.md", "translation.md", "original.md"]) {
+        const original = PathUtils.join(directory, markdown);
+        if (await IOUtils.exists(original)) await IOUtils.copy(original, PathUtils.join(destination, markdown));
+      }
+      // The standalone copy carries the same scoped styles without an actor.
+      const output = page.replace("</head>", `<link rel="stylesheet" href="${encodeURIComponent(name)}/paper-reader.css"></head>`);
+      await IOUtils.writeUTF8(path, output);
+      return true;
+    },
     async pickSaveFile(window, title, filename, label, pattern) {
       const { FilePicker } = ChromeUtils.importESModule("chrome://zotero/content/modules/filePicker.mjs");
       const picker = new FilePicker();

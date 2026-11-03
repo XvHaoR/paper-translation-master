@@ -22,9 +22,11 @@ dist/
 
 # Local environment and editor files
 .venv/
+node_modules/
 .env
 .idea/
 .vscode/
 
 # 
 测试截图/
+/doc/document.json

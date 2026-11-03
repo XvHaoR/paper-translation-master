@@ -127,6 +127,16 @@ startup = async function (...args) {
         &&!ocrOnlyState.heading.textContent.includes("启用"),"fresh OCR supports comparison without repair or enable controls");
       const ocrOnlyActor=ocrOnlyState.frame.browsingContext.currentWindowGlobal.getActor("PaperLoomSmoke");
       await waitFor(async()=>(await ocrOnlyActor.sendQuery("state")).bridge==="true");
+      report.htmlLayout=await ocrOnlyActor.sendQuery("paper-state");
+      check(report.htmlLayout.enhanced==="1"&&report.htmlLayout.figureCaption&&report.htmlLayout.tableCaption,
+        "HTML exploration groups figures and tables with their own semantic captions");
+      check(report.htmlLayout.footnotes>0&&parseFloat(report.htmlLayout.captionSize)<parseFloat(report.htmlLayout.paragraphSize)
+        &&parseFloat(report.htmlLayout.noteSize)<parseFloat(report.htmlLayout.paragraphSize),
+        "HTML captions and footnotes have distinct smaller typography than body text");
+      check(new Set(report.htmlLayout.ids).size===report.htmlLayout.ids.length,"HTML grouping retains unique original block identities");
+      await ocrOnlyActor.sendQuery("click",{selector:'[data-paper-zoom]'});
+      check((await ocrOnlyActor.sendQuery("paper-state")).dialog,"HTML image opens at full size in a separate viewer");
+      await ocrOnlyActor.sendQuery("click",{selector:'[data-paper-close]'});
       const focusButton=ocrOnlyState.pane.querySelector('[data-action="block-compare"]');
       const clickFocus=()=>{
         const rect=focusButton.getBoundingClientRect();
@@ -454,6 +464,42 @@ startup = async function (...args) {
       PL.Artifacts.pickSaveFile=pickSave;
       const excelXML=await IOUtils.readUTF8(excelPath);
       check(excelXML.includes('urn:schemas-microsoft-com:office:spreadsheet')&&excelXML.includes("Method"),"saved table exports an Excel workbook through Zotero without the service");
+      const htmlPath=PathUtils.join(PathUtils.parent(smokeResultPath),"paper-html.html");
+      const beforeHTML=await PL.request("GET","/api/testing/calls");
+      PL.Artifacts.pickSaveFile=async()=>htmlPath;
+      await PL.Artifacts.exportHTML(window,state);
+      PL.Artifacts.pickSaveFile=pickSave;
+      const exportedHTML=await IOUtils.readUTF8(htmlPath);
+      check(exportedHTML.includes('data-paper-standalone="true"')&&exportedHTML.includes("figcaption")
+        &&await IOUtils.exists(PathUtils.join(PathUtils.parent(htmlPath),"paper-html_files","paper-reader.js"))
+        &&await IOUtils.exists(PathUtils.join(PathUtils.parent(htmlPath),"paper-html_files","mathjax","tex-chtml-full.js")),
+        "HTML export saves semantic content, image viewer, formulas and local assets together");
+      const afterHTML=await PL.request("GET","/api/testing/calls");
+      check(beforeHTML.ocr===afterHTML.ocr&&beforeHTML.llm===afterHTML.llm,"HTML reading and export do not trigger OCR or translation");
+      report.htmlExport=htmlPath;
+      const standalone=window.document.createXULElement("browser");
+      standalone.setAttribute("type","content"); standalone.setAttribute("remote","false");
+      standalone.setAttribute("maychangeremoteness","true"); standalone.setAttribute("messagemanagergroup","basicViewer");
+      standalone.style.cssText="position:fixed;inset:0;z-index:9999;background:white";
+      window.document.documentElement.append(standalone);
+      standalone.browsingContext.sandboxFlags &= ~0x80;
+      try {
+        standalone.loadURI(Services.io.newFileURI(Zotero.File.pathToFile(htmlPath)),{triggeringPrincipal:Services.scriptSecurityManager.getSystemPrincipal()});
+        await waitFor(async()=>{
+          const global=standalone.browsingContext?.currentWindowGlobal;
+          if(global?.documentURI?.scheme!=="file")return false;
+          report.standaloneHTML=await global.getActor("PaperLoomSmoke").sendQuery("state");
+          return report.standaloneHTML.mathCount>0;
+        });
+        const exportedActor=standalone.browsingContext.currentWindowGlobal.getActor("PaperLoomSmoke");
+        const layout=await exportedActor.sendQuery("paper-state");
+        check(layout.enhanced==="1"&&layout.figureCaption&&layout.footnotes>0&&report.standaloneHTML.mathErrors===0,
+          "exported HTML reopens independently with semantic captions, footnotes and rendered formulas");
+        await exportedActor.sendQuery("click",{selector:'[data-paper-zoom]'});
+        check((await exportedActor.sendQuery("paper-state")).dialog,"standalone HTML image viewer still works after export and reload");
+        await exportedActor.sendQuery("click",{selector:'[data-paper-close]'});
+        await screenshot(window,smokeScreenshotPath.replace("integrated-reader.png","standalone-html.png"));
+      } finally { standalone.remove(); }
       const baseStyle=PL.readerStyle;
       for(const [i,kind] of ["ocr","translate","translate","ocr"].entries()){
         PL.readerStyle=baseStyle+`\nbody { line-height: ${i%2?1.55:1.6}; }`;

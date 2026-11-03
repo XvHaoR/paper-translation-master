@@ -92,7 +92,7 @@
       const window = task.window;
       if (!window || window.closed) throw new Error("Zotero 窗口已关闭");
       const form = new window.FormData();
-      form.append("ocr_mode", PL.config.ocrMode || "official");
+      form.append("ocr_mode", PL.Service.ocrMode());
       form.append("force", String(!!task.force || !!PL.Store.get(task.source)?.forceNextOCR));
       form.append("upload", new window.Blob([await IOUtils.read(fingerprint.path)], { type: "application/pdf" }), PathUtils.filename(fingerprint.path));
       // Record the server job ID even if cancellation races with the upload

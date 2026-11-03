@@ -65,6 +65,13 @@ def main():
     Image.new("RGB", (50, 25), "#527ca6").save(conversion.doc_dir / "assets" / "edit-figure.png")
     conversion.ir.blocks.append(Block(id="smoke-edit-figure", type=BlockType.FIGURE, page=1, order=1001,
         bbox=[.6,.6,.9,.8], content=BlockContent(image_path="assets/edit-figure.png")))
+    conversion.ir.blocks.append(Block(id="smoke-figure-caption", type=BlockType.CAPTION, page=1, order=1002,
+        layout_label="figure_title", content=BlockContent(text="Figure 1. An example figure caption with $x^2$.")))
+    conversion.ir.blocks.append(Block(id="smoke-footnote", type=BlockType.FOOTNOTE, page=1, order=1003,
+        content=BlockContent(text="1. A source footnote stays separate from the main body.")))
+    conversion.ir.blocks.append(Block(id="smoke-table-caption", type=BlockType.CAPTION, page=1, order=999,
+        layout_label="table_title", content=BlockContent(text="Table 1. Example recognition scores.")))
+    next(block for block in conversion.ir.blocks if block.id=="smoke-equation").order=990
     (conversion.doc_dir / "document.json").write_text(conversion.ir.model_dump_json(), encoding="utf-8")
     real_artifact = json.loads(args.real_ocr_fixture.read_text(encoding="utf-8")) if args.real_ocr_fixture else None
     legacy_migration = None
@@ -250,10 +257,28 @@ def main():
                     bundle.write(path, f"{folder}/{path.name}")
         bundle.writestr("config.json", json.dumps({"projectRoot": str(ROOT), "pythonCandidates": [sys.executable], "defaultBackend": "local", "ocrMode": args.ocr_mode}))
         bundle.write(ROOT / "app" / "static" / "table_excel.js", "content/table-excel.js")
-        bundle.write(ROOT / "app" / "static" / "offline_reader.css", "content/reader.css")
+        bundle.writestr("content/reader.css", (ROOT / "app/static/offline_reader.css").read_bytes()
+                        + b"\n" + (ROOT / "app/static/paper_reader.css").read_bytes())
+        bundle.write(ROOT / "app/static/paper_reader.css", "content/paper-reader.css")
+        runtime=(ROOT / "zotero/content/paper-layout.mjs").read_text(encoding="utf-8").replace(
+            "export { enhance, exportPage };", "window.PaperLoomHTML = {enhance, exportPage}; enhance(document);")
+        bundle.writestr("content/paper-reader.js", '(() => {"use strict";\n'+runtime+'\n})();')
         bundle.writestr("smoke-actor.mjs", '''export class PaperLoomSmokeChild extends JSWindowActorChild {
   async receiveMessage(message) {
     const view = this.contentWindow.wrappedJSObject;
+    if(message.name==='paper-state'){
+      const doc=this.document,style=node=>node?this.contentWindow.getComputedStyle(node):null;
+      const paragraph=doc.querySelector('.pl-block[data-paper-role="paragraph"] .pl-target p');
+      const caption=doc.querySelector('figcaption .pl-target p');
+      const footnote=doc.querySelector('aside[role="doc-footnote"] .pl-target p,aside[role="doc-footnote"] .pl-target li');
+      return {enhanced:doc.body.dataset.paperEnhanced,groups:doc.querySelectorAll('figure.paper-media').length,
+        figureCaption:!!doc.querySelector('figure.paper-figure > figcaption [data-role="figure_caption"]'),
+        tableCaption:!!doc.querySelector('figure.paper-table > figcaption [data-role="table_caption"]'),
+        footnotes:doc.querySelectorAll('aside[role="doc-footnote"]').length,
+        paragraphSize:style(paragraph)?.fontSize,captionSize:style(caption)?.fontSize,noteSize:style(footnote)?.fontSize,
+        ids:Array.from(doc.querySelectorAll('.pl-block')).map(node=>node.dataset.blockId),
+        dialog:doc.querySelector('dialog.paper-image-dialog')?.open||false};
+    }
     if(message.name==='editor-state')return {editing:this.document.body.classList.contains('pl-editing'),
       fields:this.document.querySelectorAll('.pl-edit-fields').length,draft:JSON.parse(JSON.stringify(view.PaperLoomEditor?.draft||null)),
       status:this.document.getElementById('pl-status')?.textContent};
@@ -340,8 +365,8 @@ def main():
       selectedBlock:this.document.querySelector('.pl-block.selected')?.dataset.blockId,
       firstPosition:(()=>{const node=Array.from(this.document.querySelectorAll('.pl-block')).find(node=>Number(node.dataset.page)>0&&JSON.parse(node.dataset.bbox||'[]').length===4);return node?{block:node.dataset.blockId,page:Number(node.dataset.page),bbox:JSON.parse(node.dataset.bbox)}:null})(),
       bodyFont: this.contentWindow.getComputedStyle(this.document.body).fontSize,
-      sourceFont:(()=>{const node=this.document.querySelector('.pl-source p');return node?this.contentWindow.getComputedStyle(node).fontSize:null})(),
-      targetFont:(()=>{const node=this.document.querySelector('.pl-target p');return node?this.contentWindow.getComputedStyle(node).fontSize:null})(),
+      sourceFont:(()=>{const node=this.document.querySelector('.pl-block[data-block-type="paragraph"] .pl-source p');return node?this.contentWindow.getComputedStyle(node).fontSize:null})(),
+      targetFont:(()=>{const node=this.document.querySelector('.pl-block[data-block-type="paragraph"] .pl-target p');return node?this.contentWindow.getComputedStyle(node).fontSize:null})(),
       appearance:(()=>{
         const source=this.document.querySelector('.pl-source p')||this.document.querySelector('.pl-target p');
         const target=this.document.querySelector('.pl-source+.pl-target p');

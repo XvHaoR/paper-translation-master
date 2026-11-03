@@ -1,44 +1,36 @@
 # 发布维护
 
-品牌、仓库和版本记录在 `release.json`。修改版本时，同时修改
-`pyproject.toml` 与 `zotero/manifest.json`；打包器会拒绝版本不一致。
-继续使用 `paperloom@paperloom.local` 插件 ID，保证旧安装可以升级。
+当前推荐发布为 0.5.0 HTML 正式版。品牌、版本、仓库和发行方式由 `release.json` 管理，与 `pyproject.toml`、`zotero/manifest.json` 保持一致。
+插件 ID 保持 `paperloom@paperloom.local`，保存的附件、标签和外观偏好可以沿用。
 
-## 本地构建
+## 构建与验证
 
 ```powershell
 python -m pip install -e ".[dev]" pyinstaller==6.21.0
+npm ci --prefix tests/dom
 python -m pytest tests/unit tests/integration -q
-python packaging/build_release.py --installer --tag v0.4.0
+python packaging/build_release.py --installer --tag v0.5.0
 ```
 
-Windows 安装器只能在 Windows x64 上构建。普通 `python zotero/build.py`
-用于本地开发，会记录当前工程及 Python 路径；公开分发只使用
-`python zotero/build.py --portable` 或 `packaging/build_release.py`。
+Windows x64 构建同时提供 GPU 和 RapidOCR CPU 安装器，使用相同、已审计的 runtime 源码包，分别嵌入对应的引擎类型和安装目录。CPU 安装器不会要求或下载 Paddle GPU 环境。
+`tests/dom` 的 jsdom 回归不加载浏览器资源或 OCR 模型；原生阅读器回归使用独立 Zotero 配置和文献库，运行 `python tests/zotero/run_smoke.py`。
 
-`dist/release/` 生成以下文件：
+`dist/release` 包含：
 
-- `.xpi`：可移植 Zotero 插件，没有开发机目录和 Python 路径。
-- `-setup-*.exe`：内嵌引擎源码的 Windows 安装器，首次联网下载独立 Python、依赖和模型。
-- `-runtime-*.zip`：安装器引擎源码，不包含用户论文、模型或 Python 环境。
-- `-source-*.zip`：经过白名单筛选的公开源码，可在新目录运行测试和构建。
-- `updates.json`：Zotero 自动更新清单，含插件 SHA-256 与适用 Zotero 版本。
-- `SHA256SUMS`：本次发布文件校验值。
+- 通用 `.xpi`：无开发机目录、Python 路径或本地测试固定路径，按安装环境发现引擎。
+- GPU 与 RapidOCR CPU 的 `-setup-*.exe`：内嵌相同引擎源码，首次下载各自依赖和模型，保留对应自检。
+- `-runtime-*.zip`：无论文、模型、Python 或用户配置的引擎源码包。
+- `-source-*.zip`：带测试、DOM 锁文件与构建脚本的公开源码快照。
+- `updates.json`、`SHA256SUMS`、`RELEASE_NOTES.md`：插件更新清单、文件校验和发布说明。
 
-源码包和运行时包只读取打包脚本的文件白名单；不读取 Git 历史、
-`workspace/`、`.env`、缓存、日志、OCR 结果或用户配置。
-检测到开发机个人目录或常见密钥格式会终止构建，不会输出匹配值。
+打包仅使用白名单，不读取 Git 历史、`workspace`、`.env`、模型、缓存或识别结果。检查个人目录与常见密钥格式，命中时拒绝构建。
+源码包应解压到新目录，重新安装开发依赖、执行 `npm ci --prefix tests/dom` 后测试，避免依赖原工程的未打包文件。
 
-## GitHub Actions
+## 正式发布
 
-普通提交与 PR 执行 Windows/Linux Python 测试和可移植打包。
-推送与配置相符的 `vX.Y.Z` 标签后，Release 工作流执行测试、构建安装器，
-并把文件上传到同名 GitHub Release。手动运行工作流只生成下载产物，不发布。
-`release.json` 中 `prerelease: true` 会创建预览版。插件更新地址保留稳定版
-`latest/download/updates.json` 通道；预览版手动安装，不自动推送给稳定版用户。
+主分支提交执行 Windows／Linux 测试和可移植构建。推送与 `release.json` 一致的版本标签，Release 工作流再次测试、构建并上传到同名 GitHub Release。
+`prerelease: false` 发布正式版本，`latest/download/updates.json` 是正式更新通道；手动运行工作流只保存构建产物，不发布。
+不要把用于本机探索的固定路径 XPI 或带用户设置的目录上传到 Releases。
 
-安装器目前没有 Windows 代码签名。不要将 PyInstaller 构建成功、
-SHA-256 校验或通过测试描述为代码签名。OCR 首次真实安装验收仍需
-符合当前版本要求的设备、网络与可用磁盘空间。RapidOCR 版无需 NVIDIA，但必须实际识别扫描 PDF 的文字、公式和表格。
-
-插件更新清单遵循 [Zotero 官方开发文档](https://www.zotero.org/support/dev/zotero_7_for_developers#updaterdf_updatesjson)。
+0.5.0 不再推荐旧版本；旧标签和下载保留作历史记录，不覆盖、不删除旧发行文件。新版需要同步更新引擎代码，README 和发布说明必须提示，避免误用旧服务。
+安装器尚无 Windows 代码签名，构建自检与 SHA-256 不等同于签名或全新系统安装验收。

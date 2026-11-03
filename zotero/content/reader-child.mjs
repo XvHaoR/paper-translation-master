@@ -1,4 +1,5 @@
 import { isSavedReader, actionPayload, READER_PROTOCOL } from "./reader-protocol.mjs";
+import { enhance, exportPage } from "./paper-layout.mjs";
 
 export class PaperLoomReaderChild extends JSWindowActorChild {
   handleEvent(event) {
@@ -35,6 +36,7 @@ export class PaperLoomReaderChild extends JSWindowActorChild {
         const loaded = await this.documentReady(document);
         if (this.destroyed || this.document !== document || !document.body) return { available: false };
         if (!loaded) throw new Error("阅读页面加载超时，请重新打开当前 OCR／译文页面");
+        try { enhance(document); } catch (error) { this.report(error); }
         const config = await this.sendQuery("ready", { protocol: READER_PROTOCOL });
         if (this.destroyed || this.document !== document || !document.body) return { available: false };
         document.body.dataset.zoteroBridge = String(config?.available === true);
@@ -156,7 +158,8 @@ export class PaperLoomReaderChild extends JSWindowActorChild {
       const color = appearance[kind + "TextColor"] || "CanvasText";
       const family = appearance[kind + "FontFamily"];
       style.setProperty(`--pl-${kind}-color`, color);
-      style.setProperty(`--pl-${kind}-font`, family ? JSON.stringify(family) + ", sans-serif" : "system-ui, sans-serif");
+      if (!family && this.document.body.classList.contains("pl-paper-reader")) style.removeProperty(`--pl-${kind}-font`);
+      else style.setProperty(`--pl-${kind}-font`, family ? JSON.stringify(family) + ", sans-serif" : "system-ui, sans-serif");
     }
   }
   source(node) {
@@ -164,12 +167,13 @@ export class PaperLoomReaderChild extends JSWindowActorChild {
     const content=node.querySelector('.pl-source') || node.querySelector('.pl-target');
     const copy=content?.cloneNode(true);
     copy?.querySelectorAll('button,.pl-block-tools').forEach(tool=>tool.remove());
-    return {block:node.dataset.blockId,page:Number(node.dataset.page),bbox:JSON.parse(node.dataset.bbox||'[]'),
+    return {block:node.dataset.blockId,page:Number(node.dataset.page),bbox:JSON.parse(node.dataset.bbox||'[]'),regions:JSON.parse(node.dataset.regions||'[]'),
       text:node.dataset.sourceText||copy?.textContent||'',type:node.dataset.blockType};
   }
   receiveMessage(message) {
     if (message.name === "reader-connect") { this.attempts = 0; return this.connect(); }
     if (!this.document.body) return null;
+    if (message.name === "paper-export") return exportPage(this.document, message.data?.assets || "assets");
     if (message.name === "editor-command") {
       const editor = this.contentWindow.wrappedJSObject.PaperLoomEditor;
       if (!editor) throw new Error("编辑器尚未加载，请稍后再试");

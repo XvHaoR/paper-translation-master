@@ -6,8 +6,8 @@
     async online(url = PL.serviceURL()) {
       try {
         const response = await Zotero.HTTP.request("GET", PL.serviceURL(url) + "/api/zotero/status", { timeout: 1500, responseType: "json" });
-        return response.response?.protocol === 2 && response.response?.export_schema >= 7
-          && (PL.config.ocrMode !== "rapidocr" || response.response?.ocr_modes?.includes("rapidocr"))
+        return response.response?.protocol === 2 && response.response?.export_schema >= Math.max(7, PL.config?.minimumExportSchema || 7)
+          && (this.ocrMode() !== "rapidocr" || response.response?.ocr_modes?.includes("rapidocr"))
           && ["force-ocr", "cancel-ocr", "edited-source"].every(feature => response.response?.features?.includes(feature));
       }
       catch (_) { return false; }
@@ -43,10 +43,19 @@
     },
     async python(root) {
       const { Subprocess } = ChromeUtils.importESModule("resource://gre/modules/Subprocess.sys.mjs");
+      if (this.runtime?.pinned) {
+        if (await IOUtils.exists(this.runtime.pythonPath)) return this.runtime.pythonPath;
+        throw new Error("探索版 Python 环境已移动，请恢复原环境后重试");
+      }
       const candidates = [PL.pref("pythonPath", ""), this.runtime?.projectRoot === root ? this.runtime.pythonPath : "", PathUtils.join(root, ".venv", Zotero.isWin ? "Scripts" : "bin", Zotero.isWin ? "python.exe" : "python"),
         ...(PL.config.pythonCandidates || [])].filter(Boolean);
       for (const path of candidates) if (await IOUtils.exists(path)) return path;
       return Subprocess.pathSearch(Zotero.isWin ? "python.exe" : "python3");
+    },
+    ocrMode() { return this.runtime?.ocrMode || PL.config?.ocrMode || "official"; },
+    backend() {
+      if (this.ocrMode() === "rapidocr") return "local";
+      return this.runtime?.pinned ? this.runtime.backend : PL.pref("backend", this.runtime?.backend || PL.config.defaultBackend || "local");
     },
     async heartbeat() {
       if (this.instance && PL.alive) {
@@ -63,6 +72,7 @@
     async start() {
       this.update("checking", "检查本地服务…");
       try {
+        if (!this.runtime) { try { await this.project(); } catch (_) { /* A configured external API remains usable. */ } }
         if (await this.online()) {
           this.readyURL = PL.serviceURL(); this.lastReadyAt = Date.now();
           this.update("ready", "服务已就绪"); return;
@@ -89,8 +99,8 @@
         this.owned = false;
         const arguments_ = ["-X", "utf8", PathUtils.join(root, "scripts", "zotero_service.py"), "--state-file", this.statePath,
           "--lease-file", this.leasePath, "--instance", this.instance, "--port", new URL(PL.serviceURL()).port || "80",
-          "--backend", PL.config.ocrMode === "rapidocr" ? "local" : PL.pref("backend", this.runtime?.backend || PL.config.defaultBackend || "local"), "--parent-pid", String(Services.appinfo.processID)];
-        if (PL.config.ocrMode === "rapidocr") arguments_.push("--ocr-mode", "rapidocr");
+          "--backend", this.backend(), "--parent-pid", String(Services.appinfo.processID)];
+        if (this.ocrMode() === "rapidocr") arguments_.push("--ocr-mode", "rapidocr");
         if (this.runtime?.descriptor) arguments_.push("--runtime-config",this.runtime.descriptor);
         this.process = await Subprocess.call({ command: python, arguments: arguments_, workdir: root, stderr: "stdout" });
         const process = this.process;

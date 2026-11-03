@@ -20,7 +20,7 @@ SPEC = importlib.util.spec_from_file_location("zotero_xpi_builder", ROOT / "zote
 BUILDER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BUILDER)
 
-TEXT_EXTENSIONS = {".py", ".js", ".mjs", ".css", ".html", ".xhtml", ".json", ".svg",
+TEXT_EXTENSIONS = {".py", ".js", ".mjs", ".cjs", ".css", ".html", ".xhtml", ".json", ".svg",
                    ".md", ".toml", ".txt", ".yml", ".yaml", ".ps1", ".cmd", ".sh"}
 STATIC_EXTENSIONS = {".js", ".css", ".html", ".json", ".svg", ".png", ".woff", ".woff2"}
 INSTALLER_EXTENSIONS = {".py", ".txt", ".md", ".ps1", ".cmd", ".json"}
@@ -64,7 +64,7 @@ def eligible(relative: str, *, source: bool = False) -> bool:
     if relative.startswith("extension/"):
         return path.suffix in {".js", ".mjs", ".css", ".html", ".json", ".md", ".svg", ".png"}
     if relative.startswith("tests/"):
-        return path.suffix in {".py", ".js", ".json"} or relative in {
+        return path.suffix in {".py", ".js", ".cjs", ".json", ".md"} or relative in {
             "tests/fixtures/sample_native.pdf", "tests/fixtures/sample_scanned.pdf"}
     return False
 
@@ -161,6 +161,13 @@ def build_release(*, root: Path = ROOT, output: Path | None = None,
         if not executable.is_file():
             raise ValueError("Installer build did not produce the expected executable")
         artifacts.append(executable)
+        if release.get("cpuInstaller"):
+            subprocess.run([sys.executable,str(root / "packaging/installer/build.py"),
+                            "--runtime",str(runtime),"--output",str(output),"--edition","rapidocr"],check=True,cwd=root)
+            cpu_executable=output / f"paper-translation-master-rapidocr-setup-{version}.exe"
+            if not cpu_executable.is_file():
+                raise ValueError("CPU installer build did not produce the expected executable")
+            artifacts.append(cpu_executable)
     updates = output / "updates.json"
     updates.write_text(json.dumps(update_manifest(release, manifest, xpi), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     artifacts.append(updates)
@@ -173,13 +180,14 @@ def build_release(*, root: Path = ROOT, output: Path | None = None,
         f"{release['name']} {version}\n\n" + preview_note +
         "".join(f"- {change}\n" for change in release.get("changes", [])) + "\n" +
         "- 下载 `.xpi`，在 Zotero → 工具 → 插件中选择从文件安装。\n"
-        "- Windows 用户下载 `-setup-` 安装器；安装器自动准备独立 Python、OCR 依赖和模型，首次需要联网。\n"
+        "- Windows GPU 用户下载 `paper-translation-master-setup-`，CPU 用户下载 `paper-translation-master-rapidocr-setup-`；两个安装器均自动准备独立 Python、依赖和模型，首次需要联网。\n"
+        "- 从旧版升级需同时更新 XPI 和对应引擎代码；运行同类 0.5.0 安装器可复用原安装位置、模型与下载缓存。源码／WSL 用户同步更新本项目代码。\n"
         "- 在插件设置中填写自己的大模型 API 地址、模型名称及密钥，按需翻译。\n"
         "- 已保存的 OCR 和译文可离线查看；批量处理在后台完成。\n\n" +
         ("本版为 RapidOCR 完整文档版：Windows 10/11 x64，CPU 即可，建议至少 8 GB 内存，预留 5 GB 磁盘。无需 NVIDIA、CUDA 或 WSL。保留版面、行内/行间公式和表格模型。\n"
          if release.get("ocrMode") == "rapidocr" else
-         "本版安装器支持 Windows 10/11 x64 + NVIDIA GPU（至少 8 GB 显存，推荐 12 GB；CC 7.x–9.x，驱动至少 560.76）。其他平台需自行配置 OCR。\n") +
-        "已完成本机真实 PDF 识别自检；固定新环境从下载到安装的完整流程尚未在全新 Windows 系统完成验收，因此本次提供预览版。\n"
+         "GPU 安装器支持 Windows 10/11 x64 + NVIDIA GPU（至少 8 GB 显存，推荐 12 GB；CC 7.x–9.x，驱动至少 560.76）。RapidOCR CPU 安装器无需显卡，建议至少 8 GB 内存及 5 GB 磁盘。其他平台需自行配置 OCR。\n") +
+        "插件作为 0.5.0 正式版发布。Windows 安装器全新系统的完整安装覆盖仍在补充，实际性能取决于设备与论文，详见仓库安装说明。\n"
         "安装器暂未进行 Windows 代码签名，系统可能显示未知发布者。可用 SHA256SUMS 校验下载文件。\n"
         "首次模型下载和安装可能需要较长时间，安装窗口会显示进度及错误日志。\n",
         encoding="utf-8")

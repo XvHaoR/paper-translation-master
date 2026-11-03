@@ -50,6 +50,7 @@ class SourceInfo(BaseModel):
     crop: Optional[str] = None  # assets/crops/... 相对路径
     raw_ref: Optional[str] = None  # 后端原始输出调试引用
     text: Optional[str] = None  # 人工修改前的原文，用于 PDF 定位
+    regions: list[dict[str, Any]] = Field(default_factory=list)  # Official merged groups can span columns/pages.
 
 
 class QualityInfo(BaseModel):
@@ -78,6 +79,8 @@ class BlockContent(BaseModel):
     rows: Optional[int] = None  # 表格行数
     cols: Optional[int] = None  # 表格列数
     note: Optional[str] = None  # 块级备注（如 "OCR 回退"）
+    inline_math: list[dict[str, Any]] = Field(default_factory=list)  # Coordinate-backed OCR formulas embedded in recovered prose.
+    text_repairs: list[dict[str, Any]] = Field(default_factory=list)  # Evidence for native PDF citation repairs.
 
     @model_validator(mode="after")
     def _at_least_one_field(self) -> "BlockContent":

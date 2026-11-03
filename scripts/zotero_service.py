@@ -47,9 +47,12 @@ def lease_valid(path: Path, instance: str, now: float | None = None) -> bool:
 
 def compatible_service(url: str, ocr_mode: str = "official") -> bool:
     try:
+        release_path = Path(__file__).resolve().parents[1] / "release.json"
+        release = json.loads(release_path.read_text(encoding="utf-8")) if release_path.is_file() else {}
+        minimum = max(7, int(release.get("minimumExportSchema", 7)))
         with urllib.request.urlopen(url + "/api/zotero/status", timeout=2) as response:
             status = json.load(response)
-            return (status.get("protocol") == 2 and status.get("export_schema", 0) >= 7
+            return (status.get("protocol") == 2 and status.get("export_schema", 0) >= minimum
                     and (ocr_mode != "rapidocr" or "rapidocr" in status.get("ocr_modes", []))
                     and {"force-ocr", "cancel-ocr", "edited-source"}.issubset(status.get("features", [])))
     except Exception:

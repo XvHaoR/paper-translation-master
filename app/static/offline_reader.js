@@ -78,7 +78,7 @@
   function select(section, navigate = true, revealPDF = false) {
     for (const selected of document.querySelectorAll(".pl-block.selected")) selected.classList.remove("selected");
     section.classList.add("selected"); body.classList.add("has-selection");
-    if (navigate) return action({ type: "locate", revealPDF, block: section.dataset.blockId, page: Number(section.dataset.page), bbox: JSON.parse(section.dataset.bbox || "[]") });
+    if (navigate) return action({ type: "locate", revealPDF, block: section.dataset.blockId, page: Number(section.dataset.page), bbox: JSON.parse(section.dataset.bbox || "[]"), regions: JSON.parse(section.dataset.regions || "[]") });
   }
   for (const section of document.querySelectorAll(".pl-block")) {
     const tools = document.createElement("div"); tools.className = "pl-block-tools";

@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import shutil
+import sys
 from zipfile import ZipFile
 
 import pytest
@@ -43,7 +44,10 @@ def test_portable_xpi_preserves_upgrade_id_without_local_paths(release_tree):
         assert config["runtimeDirectory"] == release["runtimeDirectory"]
         assert config["ocrMode"] == release.get("ocrMode", "official")
         assert manifest["applications"]["zotero"]["id"] == "paperloom@paperloom.local"
-        assert manifest["applications"]["zotero"]["update_url"].endswith("/releases/latest/download/updates.json")
+        assert manifest["applications"]["zotero"]["update_url"] == "https://github.com/XvHaoR/paper-translation-master/releases/latest/download/updates.json"
+        assert not config.get("localHTMLPreview") and "localRuntimeDescriptor" not in config
+        assert "content/paper-layout.mjs" in bundle.namelist()
+        assert "content/paper-reader.js" in bundle.namelist()
         for name in bundle.namelist():
             release_builder.audit(name, bundle.read(name))
 
@@ -95,6 +99,23 @@ def test_tag_and_version_mismatch_fail_before_build(release_tree):
         release_builder.validate_versions(release_tree, release)
 
 
+def test_release_checksums_cover_both_engine_installers(release_tree,monkeypatch):
+    (release_tree/'packaging').mkdir(exist_ok=True)
+    shutil.copyfile(ROOT/'packaging/build_release.py',release_tree/'packaging/build_release.py')
+    calls=[]
+    def build_installer(args,**kwargs):
+        cpu='--edition' in args
+        name='paper-translation-master-rapidocr' if cpu else 'paper-translation-master'
+        (release_tree/'dist/release'/f'{name}-setup-0.5.0.exe').write_bytes(b'cpu' if cpu else b'gpu')
+        calls.append(cpu)
+    monkeypatch.setattr(release_builder.subprocess,'run',build_installer)
+    artifacts=release_builder.build_release(root=release_tree,installer=True,tag='v0.5.0')
+    assert calls==[False,True]
+    sums=(release_tree/'dist/release/SHA256SUMS').read_text(encoding='ascii')
+    for artifact in artifacts:
+        if artifact.suffix=='.exe':assert artifact.name in sums
+
+
 def test_private_paths_fail_without_echoing_secret():
     private = bytes([67, 58, 92]) + b'Users' + bytes([92]) + b'somebody' + bytes([92]) + b'paper.pdf'
     with pytest.raises(ValueError) as error:
@@ -106,3 +127,23 @@ def test_repeated_portable_build_is_reproducible(release_tree):
     one = release_builder.BUILDER.build(portable=True, root=release_tree / "zotero", output=release_tree / "one.xpi")
     two = release_builder.BUILDER.build(portable=True, root=release_tree / "zotero", output=release_tree / "two.xpi")
     assert one.read_bytes() == two.read_bytes()
+
+
+def test_local_preview_package_pins_its_verified_runtime_and_keeps_update_channel_local(release_tree):
+    release=json.loads((release_tree/'release.json').read_text(encoding='utf-8'))
+    release['localOnly']=True
+    (release_tree/'release.json').write_text(json.dumps(release),encoding='utf-8')
+    runtime=release_tree/'snapshot';(runtime/'scripts').mkdir(parents=True)
+    (runtime/'scripts/zotero_service.py').write_text('# test runtime')
+    descriptor=release_tree/'runtime.json'
+    descriptor.write_text(json.dumps({'schema':1,'projectRoot':str(runtime),'pythonPath':sys.executable,'backend':'wsl'}))
+    xpi=release_builder.BUILDER.build(root=release_tree/'zotero',runtime_descriptor=descriptor)
+    with ZipFile(xpi) as bundle:
+        config=json.loads(bundle.read('config.json'));manifest=json.loads(bundle.read('manifest.json'))
+        assert config['localRuntimeDescriptor']==str(descriptor)
+        assert config['projectRoot']==str(runtime) and config['pythonCandidates']==[sys.executable]
+        assert config['localHTMLPreview'] and config['minimumExportSchema']==12
+        assert manifest['applications']['zotero']['id']=='paperloom@paperloom.local'
+        assert manifest['applications']['zotero']['update_url'].startswith('https://127.0.0.1/')
+    with pytest.raises(ValueError,match='portable'):
+        release_builder.BUILDER.build(root=release_tree/'zotero',runtime_descriptor=descriptor,portable=True)

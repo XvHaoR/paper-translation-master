@@ -75,6 +75,7 @@
       button("逐段双语", () => PL.ReaderUI.translationMode("bilingual"), "bilingual");
       button("仅译文", () => PL.ReaderUI.translationMode("translation"), "translation-only");
       button("段落对照", () => PL.ReaderUI.toggleCompare(reader), "block-compare");
+      button("导出 HTML", () => PL.Artifacts.exportHTML(reader._window, state), "export-html");
       button("导出 Markdown", async () => {
         const source = Zotero.Items.get(reader.itemID);
         const saved = await PL.Store.saved(source, state.kind);
@@ -169,7 +170,7 @@
           || (legacy && ["bilingual", "translation-only", "block-compare"].includes(action))
           || (action === "show-translation" && !record?.translations?.[PL.language()]?.attachmentID)
           || (action === "show-ocr" && !record?.ocr?.attachmentID)
-          || (action === "export" && !state.saved);
+          || (["export", "export-html"].includes(action) && !state.saved);
         if (action === "edit-ocr") button.disabled = active || !state.saved;
         if (["bilingual", "translation-only", "block-compare"].includes(action)) button.title = legacy
           ? (state.kind === "ocr" ? "旧版 OCR 不含段落坐标，请点击「重新 OCR」生成新结果" : "旧版译文不支持此功能，请删除译文后基于当前 OCR 重新翻译")

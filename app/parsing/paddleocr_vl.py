@@ -634,6 +634,58 @@ class PaddleOcrVlParser:
 
     # ---- 识别 ----------------------------------------------------------
 
+    def recognize_region(self, image_path: str | Path, kind: str) -> str:
+        """Official element prompt for a bounded quality retry; reuses warm models."""
+        if kind not in {"formula", "table"}:
+            raise ValueError("Only formula/table quality retries are supported")
+        if getattr(self,"_prefer_native_regions",False):
+            return self.recognize_region_native(image_path,kind)
+        if self.vl_backend == "fastdeploy-server" and not getattr(self,"_region_health_checked",False):
+            from scripts.ocr_health import probe_vlm
+            try:
+                probe_vlm(self.vl_server_url,timeout=20)
+                self._region_health_checked = True
+            except Exception:
+                return self.recognize_region_native(image_path,kind)
+        self._load()
+        output = self._ocr.predict(str(image_path), use_layout_detection=False,
+                                   prompt_label=kind, use_queues=False,
+                                   max_new_tokens=2048 if kind == "formula" else 4096)
+        item = next(iter(output), None)
+        if item is None:
+            return ""
+        entries = _result_value(item, "parsing_res_list", []) or []
+        return "\n".join(str(_result_value(block,"content","") or "") for block in entries).strip()
+
+    def recognize_region_native(self, image_path: str | Path, kind: str) -> str:
+        """Reuse native weights for bad remote regions without restarting servers.
+
+        Refuse to load a second GPU model under memory pressure. The caller then
+        retains the original result and its review warning, rather than using a
+        slow CPU fallback or risking another active OCR job.
+        """
+        if not self.vl_backend:
+            raise RuntimeError("原生复核结果仍异常，保留原结果供人工核对")
+        parser = getattr(self,"_native_regions",None)
+        if parser is None:
+            import subprocess
+            executable = shutil.which("nvidia-smi")
+            if self.device == "cpu" or not executable:
+                raise RuntimeError("需要可用的原生 GPU 进行公式复核，原结果已保留")
+            response = subprocess.run([executable,"--query-gpu=memory.free","--format=csv,noheader,nounits","--id=0"],
+                capture_output=True,text=True,timeout=5,creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
+            try:
+                free_mb = int(response.stdout.strip().splitlines()[0])
+            except (ValueError,IndexError):
+                free_mb = 0
+            if response.returncode or free_mb < 4096:
+                raise RuntimeError("空闲显存不足 4 GB，已跳过原生公式复核，原结果已保留")
+            parser = PaddleOcrVlParser(device=self.device,vl_backend="",vl_server_url="",use_queues=False)
+            self._native_regions = parser
+        text = parser.recognize_region(image_path,kind)
+        self._prefer_native_regions = True
+        return text
+
     def _result_from_item(
         self, item: Any, page_no: int, duration_ms: int
     ) -> PageOcrResult:

@@ -22,6 +22,7 @@ jobs:
         with:
           node-version: '22'
       - run: python -m pip install -e ".[dev]"
+      - run: npm ci --prefix tests/dom
       - run: python -m pytest tests/unit tests/integration -q
       - run: python packaging/build_release.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

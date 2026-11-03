@@ -108,6 +108,8 @@ def test_old_export_service_is_not_mistaken_for_current_backend(monkeypatch):
     monkeypatch.setattr(zotero_service.urllib.request, "urlopen", lambda *a, **kw: BytesIO(b'{"protocol":2,"export_schema":5,"features":["force-ocr","cancel-ocr"]}'))
     assert not zotero_service.compatible_service("http://127.0.0.1:8765")
     monkeypatch.setattr(zotero_service.urllib.request, "urlopen", lambda *a, **kw: BytesIO(b'{"protocol":2,"export_schema":7,"features":["force-ocr","cancel-ocr","edited-source"]}'))
+    assert not zotero_service.compatible_service("http://127.0.0.1:8765")
+    monkeypatch.setattr(zotero_service.urllib.request, "urlopen", lambda *a, **kw: BytesIO(b'{"protocol":2,"export_schema":12,"features":["force-ocr","cancel-ocr","edited-source"]}'))
     assert zotero_service.compatible_service("http://127.0.0.1:8765")
 
 

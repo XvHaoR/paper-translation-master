@@ -22,7 +22,7 @@ from app.services import translator
 from app.services.figure_export import export_figures
 from app.services.offline_reader import render_sections, copy_runtime
 
-EXPORT_VERSION = 7
+EXPORT_VERSION = 12
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 
@@ -86,7 +86,8 @@ def _export_blocks(data: dict, doc_dir: Path, output: Path) -> list[Block]:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(path, target)
         return blocks
-    return export_figures(blocks, data, doc_dir, output)
+    from app.services.paper_semantics import prepare_blocks
+    return export_figures(prepare_blocks(blocks, data, doc_dir), data, doc_dir, output)
 
 
 def _safe_html(markdown: str) -> str:

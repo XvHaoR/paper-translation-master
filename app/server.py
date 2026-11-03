@@ -402,7 +402,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     translator_cache = TranslateCache(settings.workspace / "translate-cache.json")
 
-    app = FastAPI(title="论文翻译大师", version="0.4.0")
+    app = FastAPI(title="论文翻译大师", version="0.5.0")
     from app.services.browser_sessions import BrowserSessions
 
     sessions = BrowserSessions()
@@ -633,7 +633,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ---- Zotero 持久化译文 ----
     @app.get("/api/zotero/status")
     async def zotero_status():
-        return {"ok": True, "protocol": 2, "export_schema": 7,
+        from app.services.translation_export import EXPORT_VERSION
+        return {"ok": True, "protocol": 2, "export_schema": EXPORT_VERSION,
                 "features": ["ocr-export", "translations", "offline-reader", "force-ocr", "cancel-ocr", "edited-source"],
                 "ocr_modes": ["official", "auto", "native", "full", "hybrid"] +
                     (["rapidocr"] if __import__("importlib.util", fromlist=["find_spec"]).find_spec("rapid_doc") else [])}

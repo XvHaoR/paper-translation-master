@@ -10,13 +10,22 @@ import sys
 import tempfile
 
 
+def edition_release(release: dict, edition: str) -> dict:
+    if edition == "rapidocr":
+        return {**release,"name":"论文翻译大师 · RapidOCR","slug":"paper-translation-master-rapidocr",
+                "runtimeDirectory":"PaperTranslationMasterRapidOCR","ocrMode":"rapidocr"}
+    return release
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--runtime", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--edition", choices=["default","rapidocr"], default="default")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
     release = json.loads((root / "release.json").read_text(encoding="utf-8"))
+    release = edition_release(release,args.edition)
     args.output.mkdir(parents=True, exist_ok=True)
     name = f"{release['slug']}-setup-{release['version']}"
     python_license = next((path for prefix in {Path(sys.prefix), Path(sys.base_prefix)}
@@ -31,12 +40,14 @@ def main():
         shutil.copy2(python_license, notice)
         project_license = Path(temporary) / "PROJECT-AGPL.txt"
         shutil.copy2(root / "LICENSE", project_license)
+        metadata=Path(temporary)/"release.json"
+        metadata.write_text(json.dumps(release,ensure_ascii=False,indent=2),encoding="utf-8")
         subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--windowed",
                         "--name", name, "--distpath", str(args.output.resolve()),
                         "--workpath", str(Path(temporary) / "work"), "--specpath", temporary,
                         "--paths", str(root / "packaging/installer"),
                         "--add-data", f"{payload};.",
-                        "--add-data", f"{root / 'release.json'};.",
+                        "--add-data", f"{metadata};.",
                         "--add-data", f"{notice};licenses",
                         "--add-data", f"{project_license};licenses",
                         "--add-data", f"{root / 'THIRD_PARTY_NOTICES.md'};licenses",

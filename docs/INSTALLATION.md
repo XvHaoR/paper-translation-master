@@ -1,97 +1,63 @@
-# 安装论文翻译大师
+# 安装与升级论文翻译大师 0.5.0
 
-## RapidOCR 完整版 0.4.1
+[0.5.0 正式版下载](https://github.com/XvHaoR/paper-translation-master/releases/tag/v0.5.0)。这是当前推荐版本，0.3.x、0.4.x 和本地 HTML 探索版仅供历史归档，不再推荐安装。
 
-新增的 CPU 版保留版面、公式和表格识别，以及 LaTeX 复制、Excel 导出、Markdown 编辑、翻译与 PDF 对照。
-首次安装下载 [RapidOCR 引擎安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.4.1/paper-translation-master-rapidocr-setup-0.4.1.exe) 安装引擎，再安装 [RapidOCR 0.4.1 XPI](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.4.1/paper-translation-master-rapidocr-0.4.1.xpi) 并重启 Zotero。
-**已有 0.4.0 的用户只需更新 XPI，无需重新安装引擎或下载模型。** 0.4.1 允许已完成 OCR 的论文在其他论文继续识别时翻译并保存。
-Windows 10/11 x64、CPU 即可，建议 8 GB 内存与 5 GB 磁盘空间；无需 NVIDIA、CUDA 或 WSL。
-完整模型需要首次下载，安装过程会验证扫描 PDF 的文字、公式与表格。详见 [RapidOCR 版说明](RAPIDOCR_EDITION.md)。
+## 安装插件与 OCR 引擎
 
-以下为 **PaddleOCR-VL 版 0.3.2** 的安装方法，适用于原 GPU 版本。两版均包含 OCR 与翻译的队列修复。
+1. 下载 `paper-translation-master-0.5.0.xpi`，在 Zotero「工具 → 插件／附加组件 → 齿轮 → 从文件安装」中安装并重启。CPU、GPU 用户使用同一插件。
+2. 关闭 Zotero，按硬件选择下面的安装器。安装器将自动准备独立 Python、依赖和模型，真实识别自检通过后才注册引擎。
+3. 重新打开 Zotero，在「工具 → 论文翻译大师 → 设置」中检测引擎并保存。已有手动目录时，确认它指向更新后的引擎；不要继续指向旧测试包。
+4. 翻译需要自己的 OpenAI 兼容接口地址、模型名和 API 密钥，可使用本地模型或远程 API。OCR 无需翻译密钥；远程翻译会向所配置服务商发送论文文本。
 
-下载地址：[GitHub Releases](https://github.com/XvHaoR/paper-translation-master/releases)。
-当前两个版本均为预览版，请在对应发布页下载，不要使用 GitHub 的“latest”地址寻找预览版。
+| 引擎 | 安装器 | 要求 |
+| --- | --- | --- |
+| PaddleOCR-VL-1.6 GPU | `paper-translation-master-setup-0.5.0.exe` | Windows 10 2004+／11 x64；NVIDIA 显存 ≥8 GB、建议 12 GB，CC 7.x–9.x，驱动 ≥560.76；磁盘 ≥15 GB，建议 25 GB |
+| RapidOCR CPU 完整文档 | `paper-translation-master-rapidocr-setup-0.5.0.exe` | Windows 10 2004+／11 x64；建议内存 ≥8 GB、磁盘 ≥5 GB；无需 NVIDIA、CUDA、WSL，仍识别版面、公式和表格 |
 
-## 1. 安装 Zotero 插件
+GPU 安装器暂不自动支持 RTX 50 系列、AMD／Intel GPU。CPU 版不使用 GPU 安装器，也不会要求 NVIDIA 驱动。
+两个引擎分别安装在 `%LOCALAPPDATA%/PaperTranslationMaster` 和 `%LOCALAPPDATA%/PaperTranslationMasterRapidOCR`，可选择其他磁盘。
+两者都安装时默认发现 GPU 环境；可在高级设置中指定已更新的 CPU 引擎项目目录。
 
-下载 [PaddleOCR-VL 0.3.2 XPI](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.3.2/paper-translation-master-0.3.2.xpi)，在 Zotero 中打开「工具 → 插件／附加组件」，
-点击齿轮，选择「从文件安装」，选中 XPI，完成后重启 Zotero。
+首次需要联网下载数 GB 依赖及模型，模型齐备后可以本地识别。安装窗口显示进度和错误，失败后可重试并复用下载缓存；不修改系统 PATH 或覆盖系统 Python。
 
-已有 0.3.1 且引擎可正常使用的用户，到此即完成升级，无需执行下方的引擎安装。
-此前安装过 PaperLoom 的用户也按此步骤替换。内部 ID 和附件标签保留，
-已有识别结果、译文、字号和外观设置继续使用；不要手动删除原插件的数据目录。
+## 从旧版本升级到 0.5.0
 
-## 2. 安装 OCR 引擎
+**本次需同时升级 XPI 和引擎代码。旧版“只更新 XPI 即可”的说明不适用于这次大版本。**
 
-Windows 首次安装下载 [PaddleOCR-VL 引擎安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.3.2/paper-translation-master-setup-0.3.2.exe)，双击，点击「安装 OCR 引擎」。
-插件设置中的「下载 OCR 安装器」也会打开同一个发布页。
+### 通过安装器安装的用户
 
-自动安装器支持：
+关闭 Zotero，运行对应引擎的 0.5.0 安装器，继续选择原安装目录。程序更新代码，复用模型、下载缓存和工作区；遇到正在使用的引擎会阻止覆盖，等待进程退出后重试。
+安装新版 XPI 并重启后，再检测引擎、保存设置。无需删除旧插件数据或 Zotero 附件。
 
-- Windows 10 2004 或更新版本／Windows 11，x64；
-- NVIDIA 显卡至少 8 GB 显存，建议 12 GB；CUDA Compute Capability 7.x–9.x；
-- NVIDIA Windows 驱动 560.76 或更新；
-- 安装盘至少 15 GB 可用空间，建议 25 GB；首次安装可以联网下载官方依赖和模型。
+### 已配置源码／WSL 环境的用户
 
-当前安装器不自动支持 RTX 50 系列、AMD／Intel GPU 或 CPU OCR；不在这些范围内会说明原因，
-不会暗中退回低速模式。GPU 驱动需由用户安装，安装器不更换系统驱动。
+更新或解压 0.5.0 源码／runtime 包到自己的引擎项目，保留 `workspace`、Python、模型缓存及环境配置。在高级设置中选择更新后的项目目录和原 Python，继续使用原有 local／WSL 后端。
+不需要重新部署已正常运行的模型服务器；需要更新本项目的服务、HTML 渲染和编辑程序。源码项目使用 `python -m pip install -e .` 同步项目依赖；具体 OCR 依赖仍依所选环境配置。
+旧本地探索版 XPI 中的固定测试目录不用于公开版分发；公开版通过安装描述文件或高级设置发现引擎。
 
-安装器依次执行硬件检查、引擎解压、独立 Python、OCR 依赖安装、模型下载和真实 PDF 自检，
-成功后注册给 Zotero 使用。无需手动安装 Python、Git、WSL、Docker，也不需要输入命令。
-安装器不修改系统 PATH，不覆盖已有 Python 或 WSL 环境。
+### 已有论文和译文
 
-首次下载通常有数 GB，时间取决于网络。安装窗口显示当前步骤及下载／安装输出，
-取消或失败后已下载缓存会保留，重新运行即可重试。下载完成的文件会检查校验值。
-只有真实识别自检通过，才会标记为安装完成。
+- 已保存 OCR 和译文继续保留，可以离线阅读；HTML 分组、字体和颜色调整不重新 OCR 或翻译。
+- 打开旧 OCR 后点击「编辑 OCR」，本地更新编辑器。选中段落修改「内容类型」并保存，连续摘要／图注／表注自动组合展示，各段 PDF 定位保留。
+- 修改文本、类型、删除图片或插入标题后，会生成新的 OCR 附件，原 PDF 和既有版本保留。
+- 旧译文不会被自动覆盖。希望译文同步校正内容时，删除旧译文，再点击「翻译」。
+- 极早附件缺少完整编辑数据，且对应源缓存已删除时，仍可阅读，需要重新 OCR 才能获得完整编辑能力。
 
-默认安装目录为 `%LOCALAPPDATA%/PaperTranslationMaster`，也可以在安装器中选择其他磁盘。
-自定义目录仍会注册到固定发现位置，插件无需手填新路径。
-重复运行安装器可以修复；修复前先关闭 Zotero，由程序检查引擎是否仍在使用，避免覆盖运行中的文件。
+## 使用
 
-安装成功后打开 Zotero「工具 → 论文翻译大师 → 设置」，点击「检测已安装引擎」再保存，
-然后点击工具栏「启动 OCR」。以后无需重复运行安装器。未填写手动路径时，插件也会在启动时自动发现引擎。
-启动模型时会显示阶段进度，就绪后进度条消失。
+点击文献列表上方「批量 OCR」／「批量翻译」，在窗口中勾选论文后开始。后台处理，完成后不自动打开阅读标签页。
+不同论文的 OCR 和翻译有独立执行槽，已 OCR 的论文不必等待其他论文识别完才能翻译；同一篇按提交顺序处理，复用已加载模型。
 
-## 3. 配置翻译
+PDF 顶部可切换原文、对照和仅 OCR；右侧可看 OCR、逐段双语或仅译文。点击段落或「对照 PDF」定位原文，支持高亮、左右交换和拖动宽度。
+编辑器可修改 Markdown 内容和语义类型，HTML 阅读保留图表布局；公式可复制 LaTeX，表格可导出 Excel。导出的 HTML 需连同其资源目录保存。
 
-在插件设置中填写自己使用的大模型服务的 OpenAI 兼容接口地址、模型名和 API 密钥，
-保存后测试连接。可以使用本地模型，也可以使用远程 API，费用由服务商决定。
-远程翻译会将待翻译文本发送给所配置的服务商。OCR 本身不要求 API 密钥。
+## 安装问题与验证范围
 
-## 4. 处理论文
+- 下载失败：安装器需要访问 Python、PyPI、PaddleOCR／RapidAI 及其官方模型源，恢复网络后重试。没有包含全部模型的离线安装包。
+- 自检失败：失败环境不会注册为可用，查看安装目录中的 `install.log`、`install-state.json`、`warmup.json`。分享前移除密钥、本机路径和论文信息。
+- 提示旧服务：关闭旧外部启动器或等待插件拥有的进程退出，再启动新版服务。不会结束其他程序占用的进程。
+- 已保存结果无需服务；OCR 模型与依赖仅在识别时需要。
 
-点击文献列表上方「批量 OCR」或「批量翻译」，在弹窗中勾选论文后点击开始。
-已有结果会复用，缺少 OCR 的论文在翻译前先识别。任务在后台处理，完成后不自动打开论文。
-
-打开 PDF 后，可在顶部切换原文、对照和仅 OCR；右侧可以查看保存的 OCR 或译文。
-已保存结果可以离线阅读，不需要启动引擎；在其他电脑上阅读同步的结果也不需要重新识别。
-
-## 遇到安装问题
-
-- 硬件不支持：查看窗口列出的原因，参考 [PaddleOCR 官方文档](https://www.paddleocr.ai/main/en/version3.x/pipeline_usage/PaddleOCR-VL.html) 自行配置其他环境；目前没有其他平台的一键安装器。
-- 下载失败：确认能访问 `python.org`、`files.pythonhosted.org`、`pypi.org`、`paddlepaddle.org.cn` 以及官方模型下载源，之后重新运行安装器。没有完整离线包。
-- 模型自检失败：安装器不会注册失败环境。保留日志后重试，或提交 Issue；不要上传论文和 API 密钥。
-- 找不到引擎：先确认安装器显示成功，再在插件设置中检测。如果以前填过手动项目目录，清空该路径并保存后再次检测，或选择正确的安装目录。
-- 修复被阻止：先关闭 Zotero 和外部 OCR 启动器，等待后台进程退出后重试；不要直接覆盖运行中的引擎文件。
-
-日志位于安装目录的 `install.log`、`install-state.json`，实际识别自检报告为 `warmup.json`。
-分享日志前请检查其中的本机路径和服务信息。
-
-## 验证范围与高级使用
-
-已在 Windows NVIDIA RTX 3060 12 GB 环境完成本地 OCR 真实 PDF 识别自检；
-插件界面使用 Zotero 10.0.7 做独立文献库回归测试。
-固定依赖的新 Python／CUDA 安装组合尚未在全新 Windows 系统完成从下载到识别的整套验收，
-因此本安装器作为预览提供。实际性能随显卡、文献和本地推理后端而变化，
-不保证与 WSL FastDeploy 的吞吐量相同。
-
-已经配置 WSL FastDeploy 的用户可继续在高级设置里选择 WSL，并填写现有项目目录和 Python。
-自行搭建其他平台的 OCR 环境时，可以使用源代码；仅安装核心 Python 依赖不会自动具备 OCR 能力。
-插件面向 Zotero 7–10，但 macOS／Linux 及旧版 Zotero 未做完整验收。
-
-预览版通过下载 XPI 手动升级。`updates.json` 采用稳定版发布地址，未来正式版本可沿用该更新通道，
-预览版不会被自动推送给稳定版用户。
-
-本项目原创代码为 AGPL-3.0-or-later；Python、PaddleOCR、模型和其他第三方组件保留各自许可证。
-安装器包含第三方声明，运行时和模型下载来源见 [安装器维护说明](../packaging/installer/README.md)。
+插件面向 Zotero 7–10，界面回归使用 Windows Zotero 10.0.7；macOS／Linux 没有一键安装器，未做完整平台验收。
+Windows 安装器没有代码签名，全新系统从下载到识别的完整覆盖仍在补充。不同引擎、论文和设备的耗时及识别质量会不同。
+发布包附 `SHA256SUMS`，可校验下载完整性。原创代码为 AGPL-3.0-or-later，第三方依赖保留各自许可证。

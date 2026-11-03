@@ -158,6 +158,9 @@
     },
     async applyLocal(values) {
       if (PL.Tasks.active || PL.Tasks.queue.length) throw new Error("请等当前文献处理完成后再修改设置");
+      if (PL.config.localHTMLPreview && PL.config.localRuntimeDescriptor) {
+        values = Object.fromEntries(Object.entries(values).filter(([key]) => !["projectRoot","pythonPath","backend"].includes(key)));
+      }
       const engine = { serviceURL: PL.serviceURL(), projectRoot: PL.pref("projectRoot", PL.config.projectRoot),
         pythonPath: PL.pref("pythonPath", ""), backend: PL.pref("backend", PL.config.defaultBackend) };
       const restart = Object.keys(engine).some(key => key in values && values[key] !== engine[key]);

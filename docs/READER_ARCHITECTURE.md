@@ -62,3 +62,11 @@ python tests/zotero/run_smoke.py
 
 这套拆分和测试用于尽早发现回归，不构成永远没有缺陷的保证。新增功能应通过明确接口扩展，
 有新失效路径时补相应行为测试，不能通过放宽原有断言绕过。
+
+## 0.5.0 HTML 语义展示与编辑边界
+
+`content/paper-layout.mjs` 只分组已有 DOM 节点，图片和说明、连续摘要可以共用容器，但不拼接 IR，不更改每段的 ID、坐标或已绑定监听器。
+`app/services/paper_semantics.py` 只使用已有识别与 PDF 证据补充语义；人工校正的 source 快照绕过自动重分类。
+`app/services/ocr_edit.py` 验证修改范围并保存新版本，类型修改不能改写身份和区域；已有附件更新编辑器不启动 OCR 或大模型。
+
+DOM 回归覆盖连续图／表注、摘要分组、误判脚注改类型、编号／正文边界、重复增强、离线导出、类型保存与每段定位事件。运行前执行 `npm ci --prefix tests/dom`。

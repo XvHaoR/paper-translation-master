@@ -37,6 +37,7 @@ class Settings:
     reading_order: str = "model-first"  # model-first | legacy-geometric
     # 解析器缓存版本：布局合并/阅读顺序等算法变更时递增，使旧缓存自动失效重解析
     parser_cache_version: str = "official-direct-rich-v3"
+    html_quality_retries: bool = True  # Local HTML exploration: bounded element checks, never on viewing.
     # 浏览器扩展
     allow_extension_ids: list[str] = field(default_factory=list)
     pair_code_ttl_seconds: int = 600

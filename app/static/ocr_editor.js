@@ -26,6 +26,7 @@
   }
   const bar = element("div", null, document.body); bar.className = "pl-editor-bar"; bar.hidden = true;
   element("strong", "编辑 OCR", bar);
+  element("span", "点选段落后修改内容类型；连续摘要、图注、表注在保存后自动合并展示。", bar);
   const stateLabel = element("span", "修改保存在新版本中，PDF 原件不变", bar);
   control(bar, "保存修改", "editor-save", async () => {
     collect();
@@ -61,7 +62,7 @@
       const text=fields.querySelector('textarea')?.value;
       const role=fields.querySelector('select')?.value;
       const patch={...(draft.changes[id]||{})};
-      if(text!=null && (text!==markdown(block)||role!==baseRole(block)))patch.markdown=text;else delete patch.markdown;
+      if(text!=null && text!==markdown(block))patch.markdown=text;else delete patch.markdown;
       if(role!==baseRole(block))patch.role=role;else delete patch.role;
       if(Object.keys(patch).length)draft.changes[id]=patch;else delete draft.changes[id];
     }
@@ -90,6 +91,7 @@
       }
       const fields=element('div',null,node);fields.className='pl-edit-fields';
       const label=element('label','内容类型 ',fields),select=element('select',null,label);
+      select.setAttribute('aria-label','内容类型');
       for(const [value,text] of Object.entries(labels)){
         if((block.type==='figure')!==(value==='figure'))continue;
         const option=element('option',text,select);option.value=value;
@@ -123,13 +125,21 @@
     update();
   }
   function close(){editing=false;bar.hidden=true;document.body.classList.remove('pl-editing');redraw();}
-  window.PaperLoomEditor={command(name){
-    if(name==='open'){
+  function open(section, focusType=false) {
+      if(editing)collect();
       editing=true;bar.hidden=false;document.body.classList.add('pl-editing');
-      const first=document.querySelector('.pl-block.selected')||document.querySelector('.pl-block');
+      const first=section||document.querySelector('.pl-block.selected')||document.querySelector('.pl-block');
       if(first)window.PaperLoomOffline.select(first,false);
       redraw();
-    }
+      if(focusType)first?.querySelector('.pl-edit-fields select')?.focus();
+  }
+  for(const [id,node] of sections){
+    if(!blocks.has(id) || blocks.get(id).type==='figure')continue;
+    const tools=node.querySelector('.pl-block-tools');
+    if(tools)control(tools,'修改类型','editor-type',()=>open(node,true));
+  }
+  window.PaperLoomEditor={command(name){
+    if(name==='open')open();
     if(name==='cancel')close();
   },get draft(){collect();return structuredClone(draft);}};
   document.addEventListener('keydown',event=>{

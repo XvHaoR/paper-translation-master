@@ -1,0 +1,30 @@
+"""Semantic HTML rendering. Tables never round-trip through a Markdown grid."""
+import html
+import re
+
+import bleach
+
+from app.models.ir import BlockType
+from app.rendering.html_renderer import render_table_text_nodes, _official_math_node
+from app.rendering.markdown_exporter import render_markdown
+from app.rendering.markdown_util import clean_latex, strip_math_delimiters
+
+
+def block_html(block, render, *, first_abstract=True):
+    if block.type is BlockType.TABLE and block.content.html:
+        table = bleach.clean(block.content.html,
+            tags={"table","thead","tbody","tfoot","tr","th","td","p","span","br","sub","sup","strong","em"},
+            attributes={"td":["colspan","rowspan"],"th":["colspan","rowspan"]},strip=True)
+        return render_table_text_nodes(table)
+    if block.type is BlockType.ABSTRACT:
+        body = re.sub(r"^\s*(?:#{1,6}\s*)?Abstract\b[.：:\s]*", "", block.content.text or "", flags=re.I)
+        return ("<h2>Abstract</h2>" if first_abstract else "") + render(body)
+    if block.type in (BlockType.EQUATION_BLOCK,BlockType.EQUATION_INLINE):
+        latex = clean_latex(strip_math_delimiters(block.content.latex or ""))
+        display = block.type is BlockType.EQUATION_BLOCK
+        content = _official_math_node(latex,display=display)
+        number = (block.content.note or "").strip().strip("()")
+        if display and re.fullmatch(r"[A-Za-z]?\d+[A-Za-z]?",number) and r"\tag" not in latex:
+            content = f'<div class="paper-equation">{content}<span class="paper-equation-number">({html.escape(number)})</span></div>'
+        return content
+    return render(render_markdown([block]))

@@ -6,6 +6,7 @@ export const ACTION_TYPES = new Set(["locate", "copy-latex", "excel", "save-ocr-
 export function isSavedReader(document) {
   const body = document?.body;
   if (!body) return false;
+  if (body.dataset.paperStandalone === "true") return false;
   if (body.dataset.readerProtocol === READER_PROTOCOL) return true;
   // Old artifacts are immutable. Recognize their structure, never their title,
   // translated UI labels or product name.

@@ -1,15 +1,18 @@
 {
-  "name": "论文翻译大师 · RapidOCR",
-  "slug": "paper-translation-master-rapidocr",
-  "runtimeDirectory": "PaperTranslationMasterRapidOCR",
-  "version": "0.4.1",
-  "ocrMode": "rapidocr",
+  "name": "论文翻译大师",
+  "slug": "paper-translation-master",
+  "runtimeDirectory": "PaperTranslationMaster",
+  "version": "0.5.0",
+  "minimumExportSchema": 12,
   "repository": "XvHaoR/paper-translation-master",
-  "prerelease": true,
+  "prerelease": false,
+  "cpuInstaller": true,
   "changes": [
-    "修复 RapidOCR 0.4.0 的 OCR 与翻译共用串行队列问题：已识别论文可在其他论文继续 OCR 时翻译并保存。",
-    "同一 PDF 按提交顺序执行；取消单篇任务不停止共享服务，工具栏同时显示 OCR 和翻译进度。",
-    "保留完整文字、版面、公式和表格识别，以及 Markdown 编辑、PDF 段落对照和已保存结果。",
-    "0.4.0 用户仅需更新 XPI 并重启 Zotero，无需重装引擎或重新下载模型；README 新增两版直接下载与升级说明。"
+    "HTML 阅读大版本：正文、摘要、图注、表注、脚注采用不同排版，图表与说明组合展示，支持完整图片查看和离线 HTML 导出，提升论文阅读体验。",
+    "更灵活地管理 OCR 后的论文与翻译：修改文本和内容类型、删除多余图片、插入标题、保存校正版本；连续摘要、图注、表注自动分组，每段保留 PDF 定位。",
+    "改进稳定性：拆分显示、编辑、阅读通信和 PDF 对照职责，补充 DOM 与混合版本回归；修复正文遗漏、行内公式、引用乱码和跨栏定位等问题。",
+    "保留批量 OCR／翻译、独立任务队列、模型复用、字体颜色设置、LaTeX 复制、Excel 导出和已保存结果离线阅读。",
+    "同一新版 XPI 可发现已安装的 PaddleOCR-VL GPU 或 RapidOCR CPU 引擎；提供对应的 0.5.0 一键安装器，引擎代码需一并更新，模型与下载缓存可复用。",
+    "推荐所有用户升级至 0.5.0。此前 0.3.x、0.4.x 和本地 HTML 探索版只作历史归档，不再推荐安装。"
   ]
 }

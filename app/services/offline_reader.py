@@ -10,6 +10,7 @@ from app.models.ir import Block, BlockType
 from app.rendering.markdown_exporter import render_markdown, SKIP_TYPES
 from app.services.translator import TRANSLATABLE_TYPES
 from app.services.ocr_edit import role
+from app.rendering.paper_blocks import block_html
 
 ROLE_LABELS = {"document_title": "论文标题", "heading": "章节标题", "paragraph": "正文", "abstract": "摘要",
                "figure_caption": "图注", "table_caption": "表注", "figure": "图片", "table": "表格",
@@ -20,22 +21,28 @@ ROLE_LABELS = {"document_title": "论文标题", "heading": "章节标题", "par
 def render_sections(blocks: list[Block], originals: list[Block] | None, render) -> str:
     source = {block.id: block for block in originals or blocks}
     parts = []
+    abstract_seen = False
     for block in sorted(blocks, key=lambda value: (value.page, value.order)):
         if block.type in SKIP_TYPES:
             continue
         original = source.get(block.id, block)
         bbox = original.bbox
         bbox = [max(0, min(1, value)) for value in bbox] if len(bbox) == 4 and all(math.isfinite(value) for value in bbox) else []
-        target_html = render(render_markdown([block]))
+        target_html = block_html(block, render, first_abstract=not abstract_seen)
         if not target_html.strip():
             continue
         attrs = (f'data-block-id="{html.escape(block.id, quote=True)}" data-page="{block.page}" '
                  f'data-bbox="{html.escape(json.dumps(bbox), quote=True)}" '
                  f'data-block-type="{block.type.value}" data-role="{role(block)}" '
+                 f'data-regions="{html.escape(json.dumps(original.source.regions), quote=True)}" '
                  f'data-source-text="{html.escape(original.source.text or "", quote=True)}"')
         content = f'<div class="pl-target">{target_html}</div>'
         if originals and block.type.value in TRANSLATABLE_TYPES:
-            content = f'<div class="pl-source" lang="en">{render(render_markdown([original]))}</div>' + content
+            content = f'<div class="pl-source" lang="en">{block_html(original, render, first_abstract=not abstract_seen)}</div>' + content
+        if block.type is BlockType.ABSTRACT:
+            abstract_seen = True
+        if block.quality.needs_review and block.quality.warnings:
+            content += '<details class="paper-warning"><summary>识别结果需核对</summary>' + html.escape('；'.join(block.quality.warnings)) + '</details>'
         badge = f'<span class="pl-role">{ROLE_LABELS.get(role(block), block.type.value)}</span>'
         parts.append(f'<section class="pl-block" {attrs}>{badge}{content}</section>')
     return "\n".join(parts)

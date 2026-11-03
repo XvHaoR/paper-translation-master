@@ -86,8 +86,13 @@ def active_blocks(payload: dict, changes: dict, insertions: list) -> list[Block]
         block.type = BlockType(kind)
         if new_role in ROLES:
             block.layout_label = "table_title" if new_role == "table_caption" else "figure_title"
-        if "markdown" in patch:
-            text = patch["markdown"]
+        structural = {"equation_block", "equation_inline", "table", "list"}
+        convert_content = kind != original.type.value and bool({kind, original.type.value} & structural)
+        if "markdown" in patch or convert_content:
+            # Text-to-text classification keeps content/evidence byte-for-byte.
+            # Structural types still need their matching content field (items,
+            # latex or HTML); this conversion is independent of the editor UI.
+            text = patch["markdown"] if "markdown" in patch else (_render_block(original) or "")
             if not isinstance(text, str) or len(text) > 100000 or not text.strip():
                 raise ValueError("内容不能为空；删除内容请使用删除按钮")
             if block.source.text is None:

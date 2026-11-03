@@ -170,6 +170,32 @@ data.schema=9;await assert.rejects(PaperLoom.Runtime.installed(),/安装信息/)
 """)
 
 
+def test_local_html_preview_pins_code_python_and_backend_without_changing_stable_preferences():
+    run_js(["runtime","service","ui"], """
+PaperLoom.config={localHTMLPreview:true,localRuntimeDescriptor:'/preview/runtime.json',minimumExportSchema:11};
+Object.assign(prefs,{projectRoot:'/stable',pythonPath:'/stable-python',backend:'local'});
+globalThis.PathUtils={join:(...parts)=>parts.join('/'),isAbsolute:path=>path.startsWith('/')};
+const data={schema:1,projectRoot:'/preview/runtime',pythonPath:'/tested-python',backend:'wsl',environment:{PAPERBRIDGE_WORKSPACE:'/preview/data'}};
+globalThis.IOUtils={exists:async()=>true,readJSON:async path=>{assert.equal(path,'/preview/runtime.json');return data;}};
+globalThis.ChromeUtils={importESModule:()=>({Subprocess:{pathSearch:()=>{throw new Error('must use pinned Python');}}})};
+const runtime=await PaperLoom.Runtime.resolve();
+assert.equal(runtime.projectRoot,data.projectRoot);assert.equal(runtime.pinned,true);
+PaperLoom.Service.runtime=runtime;
+assert.equal(await PaperLoom.Service.python(runtime.projectRoot),'/tested-python');assert.equal(PaperLoom.Service.backend(),'wsl');
+PaperLoom.Tasks={active:null,queue:[]};PaperLoom.Store.refresh=()=>{};
+await PaperLoom.UI.applyLocal({projectRoot:'/preview/runtime',pythonPath:'/tested-python',backend:'wsl',autoOCR:true});
+assert.equal(prefs.projectRoot,'/stable');assert.equal(prefs.pythonPath,'/stable-python');assert.equal(prefs.backend,'local');assert.equal(prefs.autoOCR,true);
+""")
+
+
+def test_local_html_preview_does_not_reuse_an_old_export_backend():
+    run_js(["service"], """
+PaperLoom.config={minimumExportSchema:11};
+let schema=7;Zotero.HTTP={request:async()=>({response:{protocol:2,export_schema:schema,features:['force-ocr','cancel-ocr','edited-source']}})};
+assert.equal(await PaperLoom.Service.online(),false);schema=11;assert.equal(await PaperLoom.Service.online(),true);
+""")
+
+
 def test_batch_deduplicates_and_continues_after_one_failure():
     run_js(["tasks"], """
 const sources=[1,2,3].map(id=>({id,getField:()=>`paper ${id}`}));
@@ -190,6 +216,24 @@ PaperLoom.config={ocrMode:'rapidocr',runtimeDirectory:'PaperTranslationMasterRap
 PaperLoom.setPref('projectRoot','/old-gpu');PaperLoom.setPref('backend','wsl');
 PaperLoom.Runtime.installed=async()=>({projectRoot:'/rapid',pythonPath:'/rapid/python',backend:'local',descriptor:'/rapid/runtime.json'});
 const result=await PaperLoom.Runtime.resolve();assert.equal(result.projectRoot,'/rapid');assert.equal(result.backend,'local');
+""")
+
+
+def test_unified_plugin_discovers_cpu_only_install_and_explicit_cpu_among_both():
+    run_js(["runtime","service"], """
+PaperLoom.config={ocrMode:'official',runtimeDirectory:'PaperTranslationMaster',defaultBackend:'local'};Zotero.isWin=true;
+globalThis.Services={env:{get:()=>'/local'}};
+globalThis.PathUtils={join:(...parts)=>parts.join('/'),isAbsolute:p=>p.startsWith('/')};
+let gpu=false;
+globalThis.IOUtils={exists:async p=>!p.includes('/PaperTranslationMaster/')||gpu,
+  readJSON:async p=>({schema:1,projectRoot:p.includes('RapidOCR')?'/cpu':'/gpu',pythonPath:p.includes('RapidOCR')?'/cpu/python':'/gpu/python',backend:'local',ocrMode:p.includes('RapidOCR')?'rapidocr':'official'})};
+prefs.pythonPath='/old-gpu-python';prefs.backend='wsl';
+const cpu=await PaperLoom.Runtime.resolve();assert.equal(cpu.projectRoot,'/cpu');assert.equal(cpu.pythonPath,'/cpu/python');
+PaperLoom.Service.runtime=cpu;assert.equal(PaperLoom.Service.ocrMode(),'rapidocr');assert.equal(PaperLoom.Service.backend(),'local');
+gpu=true;delete prefs.pythonPath;delete prefs.backend;
+const defaultGPU=await PaperLoom.Runtime.resolve();assert.equal(defaultGPU.projectRoot,'/gpu');
+prefs.projectRoot='/cpu';prefs.pythonPath='/old-gpu-python';prefs.backend='wsl';
+const explicitCPU=await PaperLoom.Runtime.resolve();assert.equal(explicitCPU.projectRoot,'/cpu');assert.equal(explicitCPU.pythonPath,'/cpu/python');
 """)
 
 
@@ -252,6 +296,26 @@ assert.equal(PaperLoom.Appearance.read().translationTextColor,'#502010');assert.
 assert.throws(()=>PaperLoom.Appearance.validate({ocrFontFamily:'Arial; color:red'}));
 assert.throws(()=>PaperLoom.Appearance.validate({ocrTextColor:'url(http://example.com)'}));
 await PaperLoom.Appearance.save(PaperLoom.Appearance.defaults);assert.equal(prefs.translationTextColor,'');
+""")
+
+
+def test_editing_open_refreshes_old_controls_but_never_replaces_the_overlay():
+    run_js(["editing"], """
+const source={id:1,libraryID:1},reader={itemID:1};
+Zotero.Items={get:()=>source};Zotero.Libraries={get:()=>({editable:true,filesEditable:true})};
+PaperLoom.config={minimumExportSchema:12};PaperLoom.Tasks={pending:new Map()};
+const old={attachmentID:10,attachment:{getFilePathAsync:async()=>'/saved/index.html'}},updated={attachmentID:11};
+PaperLoom.Store.saved=async()=>old;
+globalThis.PathUtils={parent:()=>'/saved',join:(...args)=>args.join('/')};
+let schema=11;
+globalThis.IOUtils={exists:async()=>true,readJSON:async()=>({schema})};
+let saves=0,opens=0;
+PaperLoom.Editing.save=async(r,data,save)=>{assert.equal(r,reader);assert.deepEqual(data,{});assert.equal(save,false);saves++;return updated;};
+PaperLoom.ReaderUI.showSaved=async(r,saved,kind)=>{assert.equal(kind,'ocr');assert.equal(saved,schema===11?updated:old);};
+PaperLoom.ReaderUI.states.set(reader,{frame:{browsingContext:{currentWindowGlobal:{}}}});
+PaperLoom.ReaderUI.readerActor=()=>({sendQuery:async(name,data)=>{assert.equal(name,'editor-command');assert.equal(data.command,'open');opens++;}});
+await PaperLoom.Editing.open(reader);assert.equal(saves,1);assert.equal(opens,1);
+schema=12;await PaperLoom.Editing.open(reader);assert.equal(saves,1);assert.equal(opens,2);
 """)
 
 
