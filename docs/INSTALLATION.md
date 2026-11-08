@@ -1,3 +1,9 @@
+# 云端版与本地版安装
+
+0.6.0 云端版：下载[Windows 完整包](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.6.0/paper-translation-master-cloud-windows-x64-0.6.0.zip)，解压并运行 Install-Cloud.cmd，安装包内 XPI，重启后填写 [AI Studio Access Token](https://aistudio.baidu.com/account/accessToken)。无需本机模型；PDF 会上传至飞桨。
+
+本地 GPU／CPU 版仍提供完整的 0.5.0 安装器和插件，下方保留部署与升级步骤。两种方式的插件功能一致，速度与具体识别结果受设备、模型和网络影响。
+
 # 安装与升级论文翻译大师 0.5.0
 
 [0.5.0 正式版下载](https://github.com/XvHaoR/paper-translation-master/releases/tag/v0.5.0)。这是当前推荐版本，0.3.x、0.4.x 和本地 HTML 探索版仅供历史归档，不再推荐安装。

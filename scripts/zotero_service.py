@@ -14,6 +14,7 @@ import subprocess
 import sys
 import time
 import threading
+import tempfile
 import urllib.request
 
 if __package__:
@@ -21,19 +22,36 @@ if __package__:
     from .ocr_health import probe_vlm
     from .process_lifetime import WindowsJob, ParentProcess
     from .runtime_config import runtime_environment
+    from .wsl_model import WSLModel, StartupCancelled
 else:
     import launcher
     from ocr_health import probe_vlm
     from process_lifetime import WindowsJob, ParentProcess
     from runtime_config import runtime_environment
+    from wsl_model import WSLModel, StartupCancelled
 
 
 def write_state(path: Path, instance: str, phase: str, message: str, **extra) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps({"instance": instance, "phase": phase, "message": message,
-                                     "updated_at": time.time(), **extra}, ensure_ascii=False), encoding="utf-8")
-    temporary.replace(path)
+    # Startup and the owner watcher may both report shutdown. A shared .tmp
+    # filename can be truncated by one writer while the other renames it.
+    descriptor, filename = tempfile.mkstemp(prefix=path.stem + ".", suffix=".tmp", dir=path.parent)
+    temporary = Path(filename)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump({"instance": instance, "phase": phase, "message": message,
+                       "updated_at": time.time(), **extra}, stream, ensure_ascii=False)
+        for attempt in range(10):
+            try:
+                temporary.replace(path)
+                break
+            except PermissionError:
+                # Windows readers may briefly open without delete sharing.
+                if attempt == 9:
+                    raise
+                time.sleep(.02)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def lease_valid(path: Path, instance: str, now: float | None = None) -> bool:
@@ -45,7 +63,7 @@ def lease_valid(path: Path, instance: str, now: float | None = None) -> bool:
         return False
 
 
-def compatible_service(url: str, ocr_mode: str = "official") -> bool:
+def compatible_service(url: str, ocr_mode: str = "official", owner: str | None = None, cloud: bool = False) -> bool:
     try:
         release_path = Path(__file__).resolve().parents[1] / "release.json"
         release = json.loads(release_path.read_text(encoding="utf-8")) if release_path.is_file() else {}
@@ -53,6 +71,8 @@ def compatible_service(url: str, ocr_mode: str = "official") -> bool:
         with urllib.request.urlopen(url + "/api/zotero/status", timeout=2) as response:
             status = json.load(response)
             return (status.get("protocol") == 2 and status.get("export_schema", 0) >= minimum
+                    and bool(status.get("cloud_ocr")) == cloud
+                    and (not status.get("managed_owner") or status["managed_owner"] == owner)
                     and (ocr_mode != "rapidocr" or "rapidocr" in status.get("ocr_modes", []))
                     and {"force-ocr", "cancel-ocr", "edited-source"}.issubset(status.get("features", [])))
     except Exception:
@@ -122,7 +142,7 @@ def run(args) -> int:
     instance = args.instance
     process = None
     lock = None
-    owns_model = False
+    model = None
     owns_keepalive = False
     log_file = None
     failed = False
@@ -130,6 +150,7 @@ def run(args) -> int:
     parent = ParentProcess(getattr(args, "parent_pid", None))
     job = None
     finished = threading.Event()
+    cancelled = threading.Event()
     cleanup_lock = threading.Lock()
     cleaned = False
 
@@ -138,7 +159,6 @@ def run(args) -> int:
         with cleanup_lock:
             if cleaned:
                 return
-            cleaned = True
             if job:
                 job.close()  # Also kills venv grandchildren and OCR subprocesses.
             if process is not None and process.poll() is None:
@@ -148,22 +168,22 @@ def run(args) -> int:
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
-            if owns_model:
-                try:
-                    subprocess.run(["wsl", "-u", "root", "-e", "systemctl", "stop", "wsl-fastdeploy-vl16"],
-                                   capture_output=True, timeout=20, creationflags=launcher.NO_WINDOW)
-                except (OSError, subprocess.SubprocessError):
-                    pass
+            if model is not None:
+                model.close()
             if owns_keepalive:
                 launcher.stop_recorded_process(root, "wsl-keepalive.pid", "sleep 2147483")
+            cleaned = True
 
     def watch_owner():
         # This also runs while model startup/probing is blocking the main thread.
         while not finished.wait(.5):
             if not parent.alive() or not lease_valid(lease, instance):
+                cancelled.set()
                 try:
                     cleanup()
                     update("stopped", "Zotero 已关闭，OCR 进程已停止")
+                except Exception as exc:
+                    update("failed", "停止 OCR 失败：" + str(exc))
                 finally:
                     os._exit(0)  # Release the launcher lock even during startup.
 
@@ -172,7 +192,7 @@ def run(args) -> int:
         if not lease_valid(lease, instance):
             raise RuntimeError("Zotero 启动请求已失效，请重试")
         requested_mode = getattr(args, "ocr_mode", None) or "official"
-        if compatible_service(url, requested_mode):
+        if compatible_service(url, requested_mode, instance, getattr(args, "backend", None) == "cloud"):
             update("ready", "服务已就绪", owned=False, service_url=url)
             return 0
         if getattr(args, "parent_pid", None):
@@ -188,6 +208,14 @@ def run(args) -> int:
                          "PAPERBRIDGE_OFFICIAL_ACCELERATOR", "PAPERBRIDGE_OFFICIAL_WSL_URL"):
                 env.pop(name, None)
         env.update(runtime_environment(getattr(args, "runtime_config", None)))
+        env["PAPERBRIDGE_ZOTERO_OWNER"] = instance
+        if args.backend == "cloud":
+            env["PAPERBRIDGE_OFFICIAL_ACCELERATOR"] = "aistudio-vl16"
+            token_file = getattr(args, "cloud_token_file", None)
+            if token_file:
+                env["PAPERBRIDGE_CLOUD_TOKEN_FILE"] = str(Path(token_file).resolve())
+        elif env.get("PAPERBRIDGE_OFFICIAL_ACCELERATOR") == "aistudio-vl16":
+            env.pop("PAPERBRIDGE_OFFICIAL_ACCELERATOR", None)
         if requested_mode == "rapidocr":
             env["PAPERBRIDGE_OCR_MODE"] = "rapidocr"
             env["PAPERBRIDGE_OCR_DEVICE"] = "cpu"
@@ -196,29 +224,21 @@ def run(args) -> int:
         env["PAPERBRIDGE_WORKSPACE"] = str(Path(args.workspace).resolve() if args.workspace
                                           else Path(env.get("PAPERBRIDGE_WORKSPACE", root / "workspace")).resolve())
         if args.backend == "wsl":
-            # The exclusive project launcher lock owns this dedicated model,
-            # including a warm model left behind by an earlier Zotero session.
-            owns_model = True
+            # All frozen runtime directories share this one model ownership lock.
+            # Cleanup cannot race the assignment and leave a late model behind.
+            with cleanup_lock:
+                if cleaned or not lease_valid(lease, instance):
+                    raise StartupCancelled("Zotero 已取消启动")
+                model = WSLModel()
             update("starting_ocr", "正在启动 WSL OCR 服务…")
             keepalive_file = root / "scripts" / "wsl-keepalive.pid"
             launcher.ensure_wsl_keepalive(root)
             owns_keepalive = keepalive_file.exists()
-            if not launcher.is_up(launcher.VLM_URL):
-                owns_model = True
-                update("loading_model", "正在加载 OCR 模型，首次启动可能需要几分钟…")
-                if not launcher.start_vlm():
-                    raise RuntimeError("OCR 模型未能启动，请检查 WSL FastDeploy 配置")
+            update("loading_model", "正在加载 OCR 模型，首次启动可能需要几分钟…")
+            model.start(lambda: launcher.is_up(launcher.VLM_URL))
             update("checking_ocr", "正在检查 OCR 模型实际识别能力…")
-            try:
-                probe_warm_model(update)
-            except Exception:
-                update("loading_model", "OCR 模型状态异常，正在重启恢复…")
-                owns_model = True
-                subprocess.run(["wsl", "-u", "root", "-e", "systemctl", "restart", "wsl-fastdeploy-vl16"],
-                               capture_output=True, timeout=60, check=True, creationflags=launcher.NO_WINDOW)
-                if not launcher.start_vlm():
-                    raise RuntimeError("OCR 模型重启失败，请重试")
-                probe_vlm()
+            # A failed probe stops this attempt; it must not create restart loops.
+            probe_warm_model(update)
             env.update({
                 "PAPERBRIDGE_OFFICIAL_ACCELERATOR": "fastdeploy-vl16",
                 "PAPERBRIDGE_OCR_VL_BACKEND": "fastdeploy-server",
@@ -229,7 +249,7 @@ def run(args) -> int:
             })
             env.pop("PAPERBRIDGE_OFFICIAL_WSL_URL", None)
         if not lease_valid(lease, instance):
-            raise RuntimeError("Zotero 已取消启动")
+            raise StartupCancelled("Zotero 已取消启动")
         update("starting_api", "正在启动文档处理服务…")
         log_dir = root / "log"
         log_dir.mkdir(exist_ok=True)
@@ -249,8 +269,8 @@ def run(args) -> int:
             if process.poll() is not None:
                 raise RuntimeError("文档处理服务启动失败，请查看 log/paperloom-zotero.log")
             if not lease_valid(lease, instance):
-                raise RuntimeError("Zotero 已取消启动")
-            if compatible_service(url, requested_mode):
+                raise StartupCancelled("Zotero 已取消启动")
+            if compatible_service(url, requested_mode, instance, getattr(args, "backend", None) == "cloud"):
                 break
             time.sleep(.5)
         else:
@@ -260,17 +280,25 @@ def run(args) -> int:
             time.sleep(.5)
         update("stopping", "正在释放文档处理服务…")
     except Exception as exc:
-        failed = True
-        update("failed", str(exc))
+        if isinstance(exc, StartupCancelled) or cancelled.is_set():
+            cancelled.set()
+            update("stopping", "启动已取消，正在释放模型…")
+        else:
+            failed = True
+            update("failed", str(exc))
     finally:
         finished.set()
-        cleanup()
+        try:
+            cleanup()
+        except Exception as exc:
+            failed = True
+            update("failed", "停止 OCR 失败：" + str(exc))
         parent.close()
         if log_file:
             log_file.close()
         if lock:
             lock.close()
-        if process is not None and not failed:
+        if not failed and (process is not None or cancelled.is_set()):
             update("stopped", "服务已停止")
     return 1 if failed else 0
 
@@ -281,8 +309,9 @@ if __name__ == "__main__":
     parser.add_argument("--lease-file", required=True)
     parser.add_argument("--instance", required=True)
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--backend", choices=["wsl", "local"], default="wsl" if os.name == "nt" else "local")
+    parser.add_argument("--backend", choices=["wsl", "local", "cloud"], default="wsl" if os.name == "nt" else "local")
     parser.add_argument("--workspace")
+    parser.add_argument("--cloud-token-file")
     parser.add_argument("--runtime-config", help="Installer runtime descriptor")
     parser.add_argument("--ocr-mode", choices=["official", "rapidocr"], default="official")
     parser.add_argument("--parent-pid", type=int, help="Owning Zotero main process")

@@ -1,18 +1,18 @@
 {
-  "name": "论文翻译大师",
-  "slug": "paper-translation-master",
-  "runtimeDirectory": "PaperTranslationMaster",
-  "version": "0.5.0",
-  "minimumExportSchema": 12,
+  "name": "论文翻译大师 · 云端版",
+  "slug": "paper-translation-master-cloud",
+  "runtimeDirectory": "PaperTranslationMasterCloud",
+  "version": "0.6.0",
+  "minimumExportSchema": 13,
   "repository": "XvHaoR/paper-translation-master",
   "prerelease": false,
-  "cpuInstaller": true,
+  "cpuInstaller": false,
   "changes": [
-    "HTML 阅读大版本：正文、摘要、图注、表注、脚注采用不同排版，图表与说明组合展示，支持完整图片查看和离线 HTML 导出，提升论文阅读体验。",
-    "更灵活地管理 OCR 后的论文与翻译：修改文本和内容类型、删除多余图片、插入标题、保存校正版本；连续摘要、图注、表注自动分组，每段保留 PDF 定位。",
-    "改进稳定性：拆分显示、编辑、阅读通信和 PDF 对照职责，补充 DOM 与混合版本回归；修复正文遗漏、行内公式、引用乱码和跨栏定位等问题。",
-    "保留批量 OCR／翻译、独立任务队列、模型复用、字体颜色设置、LaTeX 复制、Excel 导出和已保存结果离线阅读。",
-    "同一新版 XPI 可发现已安装的 PaddleOCR-VL GPU 或 RapidOCR CPU 引擎；提供对应的 0.5.0 一键安装器，引擎代码需一并更新，模型与下载缓存可复用。",
-    "推荐所有用户升级至 0.5.0。此前 0.3.x、0.4.x 和本地 HTML 探索版只作历史归档，不再推荐安装。"
-  ]
+    "增加飞桨云端 PaddleOCR-VL-1.6：无需下载本机 OCR 模型，Windows 轻量运行环境随包提供。",
+    "保留与本地版相同的批量 OCR、大模型翻译、HTML 阅读、PDF 段落对照、内容编辑、公式复制及表格导出功能。",
+    "保留已保存结果的离线阅读；云端自动 OCR 单独开启，密钥只保存在本机。",
+    "合入模型启停、进度状态和 OCR 类别向已有译文同步的修复。",
+    "保留本地 GPU 与 RapidOCR CPU 完整安装包及部署文档，README 明确区分硬件要求、云端优势与 API 注册步骤。"
+  ],
+  "cloudPreview": true
 }

@@ -20,6 +20,7 @@ def test_combined_release_keeps_cpu_and_gpu_installer_identities_separate():
     spec=importlib.util.spec_from_file_location("installer_builder",ROOT/"packaging/installer/build.py")
     builder=importlib.util.module_from_spec(spec);spec.loader.exec_module(builder)
     release=json.loads((ROOT/'release.json').read_text(encoding='utf-8'))
+    release.update(runtimeDirectory='PaperTranslationMaster',version='0.5.0',slug='paper-translation-master')
     gpu=builder.edition_release(release,'default');cpu=builder.edition_release(release,'rapidocr')
     assert gpu['runtimeDirectory']=='PaperTranslationMaster'
     assert cpu['runtimeDirectory']=='PaperTranslationMasterRapidOCR' and cpu['ocrMode']=='rapidocr'

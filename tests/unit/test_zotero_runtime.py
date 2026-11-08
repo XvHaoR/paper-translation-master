@@ -196,6 +196,16 @@ assert.equal(await PaperLoom.Service.online(),false);schema=11;assert.equal(awai
 """)
 
 
+def test_another_zotero_session_is_not_mistaken_for_an_external_api():
+    run_js(["service"], """
+PaperLoom.config={minimumExportSchema:13};
+Zotero.HTTP={request:async()=>({response:{protocol:2,export_schema:13,managed_owner:'first',features:['force-ocr','cancel-ocr','edited-source']}})};
+assert.equal(await PaperLoom.Service.online(),false);
+PaperLoom.Service.instance='second';assert.equal(await PaperLoom.Service.online(),false);
+PaperLoom.Service.instance='first';assert.equal(await PaperLoom.Service.online(),true);
+""")
+
+
 def test_batch_deduplicates_and_continues_after_one_failure():
     run_js(["tasks"], """
 const sources=[1,2,3].map(id=>({id,getField:()=>`paper ${id}`}));

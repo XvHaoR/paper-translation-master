@@ -30,6 +30,7 @@ def main():
     parser.add_argument("--real-translation-fixture", type=Path, help="Optional cache-only translated artifact for real bilingual checks")
     parser.add_argument("--quit-backend", choices=["local", "wsl"], default="local")
     parser.add_argument("--ocr-mode", choices=["official", "rapidocr"], default="official")
+    parser.add_argument("--cloud-package", type=Path)
     args = parser.parse_args()
     run = ROOT / "workspace" / "zotero-smoke" / time.strftime("%Y%m%d-%H%M%S")
     profile = run / "profile"
@@ -38,6 +39,23 @@ def main():
     data_dir = run / "data"
     data_dir.mkdir()
     result_file = run / "result.json"
+    cloud_token_file = profile / "paperloom" / "cloud-ocr-token"
+    cloud_appdata = run / "cloud-appdata"
+    cloud_pdf = run / "cloud-fixture.pdf"
+    if args.cloud_package:
+        import fitz
+        cloud_token = os.environ.pop("PADDLEOCR_ACCESS_TOKEN", "")
+        if not cloud_token:
+            raise RuntimeError("Set PADDLEOCR_ACCESS_TOKEN for the isolated cloud test")
+        with fitz.open(ROOT / "tests/fixtures/sample_native.pdf") as original, fitz.open() as sample:
+            sample.insert_pdf(original, from_page=0, to_page=0)
+            sample.save(cloud_pdf)
+        subprocess.run([str(args.cloud_package / "python/python.exe"), "-X", "utf8",
+                        str(args.cloud_package / "register-cloud.py")], check=True,
+                       env={**os.environ, "LOCALAPPDATA":str(cloud_appdata)})
+        cloud_token_file.parent.mkdir(parents=True)
+        cloud_token_file.write_text(cloud_token, encoding="utf-8")
+        del cloud_token
     isolated_temp = run / "temp"
     isolated_temp.mkdir()
     from app.config import Settings
@@ -390,6 +408,16 @@ def main():
       url: this.document.documentURI};
   }
 }''')
+    if args.cloud_package:
+        source_xpi = next(args.cloud_package.glob("*.xpi"))
+        harness = Path(__file__).with_name("cloud_smoke.js").read_text(encoding="utf-8")
+        constants += f"\nvar cloudPDFPath = {json.dumps(str(cloud_pdf))};"
+        with zipfile.ZipFile(source_xpi) as source, zipfile.ZipFile(test_plugin, "w") as dest:
+            for name in source.namelist():
+                content = source.read(name)
+                if name == "bootstrap.js":
+                    content += ("\n" + constants + "\n" + harness).encode()
+                dest.writestr(name, content)
     log_path = run / "zotero.log"
     print(f"Isolated Zotero smoke test: {run}", flush=True)
     with log_path.open("w", encoding="utf-8") as log:
@@ -399,6 +427,7 @@ def main():
             stdout=log, stderr=subprocess.STDOUT,
             env={**os.environ, "MOZ_HEADLESS": "1", "TEMP": str(isolated_temp), "TMP": str(isolated_temp),
                  "MOZ_HEADLESS_WIDTH": "1800", "MOZ_HEADLESS_HEIGHT": "1100",
+                 **({"LOCALAPPDATA":str(cloud_appdata)} if args.cloud_package else {}),
                  "PAPERBRIDGE_WORKSPACE": str(run / "managed-workspace"), "PAPERLOOM_LAUNCHER_LOCK": str(ROOT / "scripts" / "launcher.lock" if args.quit_backend == "wsl" else run / "launcher.lock")},
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
@@ -464,7 +493,7 @@ def main():
             install = command("Addon:Install", {"path": str(test_plugin), "temporary": True})
             print(f"AddonManager: {install}", flush=True)
             remote.close()
-            for _ in range(600 if args.quit_backend == "wsl" else 180):
+            for _ in range(600 if args.quit_backend == "wsl" or args.cloud_package else 180):
                 if result_file.exists():
                     break
                 time.sleep(1)
@@ -509,6 +538,7 @@ def main():
             if not report.get("ok"):
                 raise SystemExit(1)
         finally:
+            cloud_token_file.unlink(missing_ok=True)
             if process.poll() is None:
                 process.terminate()
                 process.wait(timeout=10)

@@ -6,7 +6,7 @@
       const value = await IOUtils.readJSON(path);
       if (value.schema !== 1 || typeof value.projectRoot !== "string" || typeof value.pythonPath !== "string"
         || !PathUtils.isAbsolute(value.projectRoot) || !PathUtils.isAbsolute(value.pythonPath)
-        || !["local", "wsl"].includes(value.backend)) throw new Error("OCR 安装信息不完整，请重新运行安装器修复");
+        || !["local", "wsl", "cloud"].includes(value.backend)) throw new Error("OCR 安装信息不完整，请重新运行安装器修复");
       if (!await IOUtils.exists(PathUtils.join(value.projectRoot, "scripts", "zotero_service.py"))
         || !await IOUtils.exists(value.pythonPath)) throw new Error("OCR 引擎文件缺失，请重新运行安装器修复");
       return {...value, descriptor:path};
@@ -35,6 +35,11 @@
       // stable install descriptor or saved engine preferences.
       if (PL.config.localHTMLPreview && PL.config.localRuntimeDescriptor) {
         return {...await this.descriptor(PL.config.localRuntimeDescriptor),pinned:true};
+      }
+      if (PL.config.cloudPreview) {
+        const runtime = await this.installed();
+        if (!runtime || runtime.backend !== "cloud") throw new Error("请先运行包内的 Install-Cloud.cmd");
+        return {...runtime,pinned:true};
       }
       if (PL.config.ocrMode === "rapidocr") {
         const installed = await this.installed();

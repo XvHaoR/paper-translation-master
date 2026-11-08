@@ -5,7 +5,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   const $ = id => window.document.getElementById(id);
   const status = text => { $("status").textContent = text; };
   const local = () => ({
-    autoOCR: $("autoOCR").checked, language: $("language").value.trim(), backend: $("backend").value,
+    ...($("backend").value === "cloud" ? {cloudAutoOCR:$("autoOCR").checked} : {autoOCR:$("autoOCR").checked}), language: $("language").value.trim(), backend: $("backend").value,
     projectRoot: $("projectRoot").value.trim(), pythonPath: $("pythonPath").value.trim(), serviceURL: $("serviceURL").value.trim(),
   });
   const action = (id, fn) => $(id).addEventListener("click", async () => {
@@ -29,6 +29,29 @@ window.addEventListener("DOMContentLoaded", async () => {
   action("downloadEngine", () => PL.Runtime.download());
   action("detectEngine", detectEngine);
   try { await detectEngine(); } catch (error) { $("engineStatus").textContent=error.message; }
+  const updateAuto = () => {
+    const cloud = $("backend").value === "cloud";
+    $("autoOCRLabel").textContent = cloud ? "新文献添加后自动上传 PDF 至飞桨进行 OCR" : "新文献添加后自动 OCR";
+    $("autoOCR").checked = PL.pref(cloud ? "cloudAutoOCR" : "autoOCR", false);
+  };
+  $("backend").addEventListener("change", updateAuto);
+  if (PL.config.cloudPreview) {
+    $("backend").value = "cloud"; $("backend").disabled = true;
+    $("localEngineHint").textContent = "此版本使用内置轻量运行环境。解压测试包并运行 Install-Cloud.cmd 后，填写下方飞桨密钥即可。";
+    for (const id of ["projectRoot","pythonPath","chooseRoot","downloadEngine"]) $(id).disabled = true;
+  }
+  updateAuto();
+  const saveCloud = async () => {
+    const path = PL.Service.cloudTokenPath(), token = $("cloudToken").value.trim();
+    if ($("clearCloudToken").checked) await IOUtils.remove(path, {ignoreAbsent:true});
+    else if (token) {
+      if (/\s/.test(token) || token.length > 4096) throw new Error("Access Token 格式无效");
+      await IOUtils.writeUTF8(path, token, {tmpPath:path + ".tmp"});
+    }
+    $("cloudToken").value = ""; $("clearCloudToken").checked = false;
+    $("cloudToken").placeholder = await IOUtils.exists(path) ? "已保存密钥；留空保持不变" : "填写 AI Studio Access Token";
+  };
+  $("cloudToken").placeholder = await IOUtils.exists(PL.Service.cloudTokenPath()) ? "已保存密钥；留空保持不变" : "填写 AI Studio Access Token";
   const readAppearance = values => {
     for (const kind of ["ocr", "translation"]) {
       $(kind + "FontFamily").value = values[kind + "FontFamily"] || "";
@@ -58,9 +81,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     picker.init(window, "选择论文翻译大师引擎目录", picker.modeGetFolder);
     if ((await picker.show()) !== picker.returnCancel) $("projectRoot").value = picker.file;
   });
-  action("saveLocal", async () => { await PL.UI.applyLocal(local()); status("已保存。自动 OCR 只作用于之后新添加的文献。"); });
+  action("saveLocal", async () => { await PL.UI.applyLocal(local()); await saveCloud(); status("已保存。自动 OCR 只作用于之后新添加的文献。"); });
   action("close", () => window.close());
-  const apply = async () => { await PL.UI.applyLocal(local()); status("正在启动服务…"); await PL.Service.ensure(); };
+  const apply = async () => { await PL.UI.applyLocal(local()); await saveCloud(); status("正在启动服务…"); await PL.Service.ensure(); };
   const read = config => {
     $("llm_base_url").value = config.llm_base_url || "";
     $("llm_model").value = config.llm_model || "";

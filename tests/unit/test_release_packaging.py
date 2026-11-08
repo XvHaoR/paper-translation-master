@@ -44,7 +44,7 @@ def test_portable_xpi_preserves_upgrade_id_without_local_paths(release_tree):
         assert config["runtimeDirectory"] == release["runtimeDirectory"]
         assert config["ocrMode"] == release.get("ocrMode", "official")
         assert manifest["applications"]["zotero"]["id"] == "paperloom@paperloom.local"
-        assert manifest["applications"]["zotero"]["update_url"] == "https://github.com/XvHaoR/paper-translation-master/releases/latest/download/updates.json"
+        assert manifest["applications"]["zotero"]["update_url"] == "https://github.com/XvHaoR/paper-translation-master/releases/latest/download/" + ("cloud-updates.json" if release.get("cloudPreview") else "updates.json")
         assert not config.get("localHTMLPreview") and "localRuntimeDescriptor" not in config
         assert "content/paper-layout.mjs" in bundle.namelist()
         assert "content/paper-reader.js" in bundle.namelist()
@@ -82,7 +82,7 @@ def test_release_hashes_and_update_manifest(release_tree):
     for line in checksums:
         expected, name = line.split("  ", 1)
         assert hashlib.sha256((output / name).read_bytes()).hexdigest() == expected
-    updates = json.loads((output / "updates.json").read_text(encoding="utf-8"))
+    updates = json.loads((output / ("cloud-updates.json" if json.loads((release_tree/"release.json").read_text())["cloudPreview"] else "updates.json")).read_text(encoding="utf-8"))
     update = updates["addons"]["paperloom@paperloom.local"]["updates"][0]
     assert update["version"] == version
     assert update["update_hash"] == "sha256:" + hashlib.sha256(artifacts[0].read_bytes()).hexdigest()
@@ -100,6 +100,12 @@ def test_tag_and_version_mismatch_fail_before_build(release_tree):
 
 
 def test_release_checksums_cover_both_engine_installers(release_tree,monkeypatch):
+    release=json.loads((release_tree/'release.json').read_text(encoding='utf-8'))
+    release.update(version='0.5.0',runtimeDirectory='PaperTranslationMaster',slug='paper-translation-master',cloudPreview=False,cpuInstaller=True)
+    (release_tree/'release.json').write_text(json.dumps(release),encoding='utf-8')
+    manifest=json.loads((release_tree/'zotero/manifest.json').read_text(encoding='utf-8'));manifest['version']='0.5.0'
+    (release_tree/'zotero/manifest.json').write_text(json.dumps(manifest),encoding='utf-8')
+    (release_tree/'pyproject.toml').write_text('[project]\nversion = "0.5.0"\n',encoding='utf-8')
     (release_tree/'packaging').mkdir(exist_ok=True)
     shutil.copyfile(ROOT/'packaging/build_release.py',release_tree/'packaging/build_release.py')
     calls=[]
@@ -142,7 +148,7 @@ def test_local_preview_package_pins_its_verified_runtime_and_keeps_update_channe
         config=json.loads(bundle.read('config.json'));manifest=json.loads(bundle.read('manifest.json'))
         assert config['localRuntimeDescriptor']==str(descriptor)
         assert config['projectRoot']==str(runtime) and config['pythonCandidates']==[sys.executable]
-        assert config['localHTMLPreview'] and config['minimumExportSchema']==12
+        assert config['localHTMLPreview'] and config['minimumExportSchema']==13
         assert manifest['applications']['zotero']['id']=='paperloom@paperloom.local'
         assert manifest['applications']['zotero']['update_url'].startswith('https://127.0.0.1/')
     with pytest.raises(ValueError,match='portable'):

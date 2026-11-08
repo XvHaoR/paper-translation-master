@@ -15,7 +15,7 @@
   </html:style>
   <html:div class="settings">
     <html:h2>处理方式</html:h2>
-    <html:label><html:input id="autoOCR" type="checkbox"/> 新文献添加后自动 OCR</html:label>
+    <html:label><html:input id="autoOCR" type="checkbox"/> <html:span id="autoOCRLabel">新文献添加后自动 OCR</html:span></html:label>
     <html:p class="hint">仅处理之后添加且已下载的 PDF。翻译始终由你手动选择。</html:p>
     <html:label class="field">目标语言<html:input id="language" value="zh" placeholder="zh / en / zh-TW"/></html:label>
     <html:hr/>
@@ -32,15 +32,20 @@
     <html:div class="field"><html:span>译文文字颜色</html:span><html:div class="row"><html:input id="translationTextColor" type="color"/><html:label><html:input id="translationColorAuto" type="checkbox"/> 自动</html:label></html:div></html:div>
     <html:div class="row"><html:button id="saveAppearance">保存阅读外观</html:button><html:button id="resetAppearance">恢复默认外观</html:button></html:div>
     <html:hr/>
-    <html:h2>本地 OCR 引擎</html:h2>
-    <html:p class="hint">首次使用：下载安装器并运行。安装成功后自动识别运行环境，无需手填 Python 和项目路径。Windows 一键版需要 NVIDIA 显卡，其他平台请参考源码安装说明。</html:p>
+    <html:h2>OCR 引擎</html:h2>
+    <html:p class="hint" id="localEngineHint">首次使用：下载安装器并运行。安装成功后自动识别运行环境，无需手填 Python 和项目路径。Windows 一键版需要 NVIDIA 显卡，其他平台请参考源码安装说明。</html:p>
     <html:div class="row"><html:button id="downloadEngine">下载 OCR 安装器</html:button><html:button id="detectEngine">检测已安装引擎</html:button></html:div>
     <html:p id="engineStatus" class="hint" role="status" aria-live="polite"/>
     <html:p class="hint">在 Zotero 工具栏点击启动，或处理文献时按需启动。关闭 Zotero 后自动释放由插件启动的服务。</html:p>
-    <html:label class="field">运行方式<html:select id="backend"><html:option value="wsl">WSL FastDeploy（本机已配置）</html:option><html:option value="local">本机 Python OCR</html:option></html:select></html:label>
+    <html:label class="field">运行方式<html:select id="backend"><html:option value="wsl">WSL FastDeploy（本机已配置）</html:option><html:option value="local">本机 Python OCR</html:option><html:option value="cloud">飞桨云端 OCR</html:option></html:select></html:label>
     <html:label class="field">项目目录<html:div class="row"><html:input id="projectRoot"/><html:button id="chooseRoot">选择…</html:button></html:div></html:label>
     <html:label class="field">Python 路径<html:input id="pythonPath" placeholder="留空自动查找 OCR 环境"/></html:label>
     <html:label class="field">本地服务地址<html:input id="serviceURL" placeholder="http://127.0.0.1:8765"/></html:label>
+    <html:hr/>
+    <html:h2>飞桨云端 OCR</html:h2>
+    <html:p class="hint">云端模式会将待识别的 PDF 上传至飞桨 AI Studio，无需安装模型。密钥只保存在本机 Zotero 配置目录。</html:p>
+    <html:label class="field">Access Token<html:input id="cloudToken" type="password" placeholder="留空保留现有密钥"/></html:label>
+    <html:label><html:input id="clearCloudToken" type="checkbox"/> 清除云端 OCR 密钥</html:label>
     <html:hr/>
     <html:h2>翻译服务</html:h2>
     <html:p class="hint">兼容 OpenAI 接口，可使用本地模型或云端服务。OCR 不需要翻译密钥。</html:p>

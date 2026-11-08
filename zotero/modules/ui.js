@@ -47,10 +47,13 @@
         if (options) {
           popup.append(doc.createXULElement("menuseparator"));
           const automatic = menuitem(popup, "新文献添加后自动 OCR", () => {
-            PL.setPref("autoOCR", !PL.pref("autoOCR", false));
-            automatic.setAttribute("checked", String(PL.pref("autoOCR", false)));
-          }, { type: "checkbox", checked: String(PL.pref("autoOCR", false)), autocheck: "false" });
-          popup.addEventListener("popupshowing", () => automatic.setAttribute("checked", String(PL.pref("autoOCR", false))));
+            PL.setPref(PL.Tasks.autoPref(), !PL.pref(PL.Tasks.autoPref(), false));
+            automatic.setAttribute("checked", String(PL.pref(PL.Tasks.autoPref(), false)));
+          }, { type: "checkbox", checked: String(PL.pref(PL.Tasks.autoPref(), false)), autocheck: "false" });
+          popup.addEventListener("popupshowing", () => {
+            automatic.setAttribute("checked", String(PL.pref(PL.Tasks.autoPref(), false)));
+            automatic.setAttribute("label", PL.Tasks.autoPref() === "cloudAutoOCR" ? "新文献自动上传飞桨进行 OCR" : "新文献添加后自动 OCR");
+          });
           menuitem(popup, "启动 OCR 服务", () => PL.Service.ensure());
           menuitem(popup, "停止 OCR 服务", () => PL.Service.stop());
           menuitem(popup, "设置…", () => this.settings(window));
@@ -158,7 +161,7 @@
     },
     async applyLocal(values) {
       if (PL.Tasks.active || PL.Tasks.queue.length) throw new Error("请等当前文献处理完成后再修改设置");
-      if (PL.config.localHTMLPreview && PL.config.localRuntimeDescriptor) {
+      if (PL.config.cloudPreview || (PL.config.localHTMLPreview && PL.config.localRuntimeDescriptor)) {
         values = Object.fromEntries(Object.entries(values).filter(([key]) => !["projectRoot","pythonPath","backend"].includes(key)));
       }
       const engine = { serviceURL: PL.serviceURL(), projectRoot: PL.pref("projectRoot", PL.config.projectRoot),

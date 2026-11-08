@@ -10,7 +10,18 @@ if __name__ == "__main__":
     try:
         request = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
         artifact = prepare_or_save(Path(request["saved"]), Path(request["output"]), Path(request["workspace"]), request)
-        Path(request["result"]).write_text(json.dumps({"artifact": artifact}, ensure_ascii=False), encoding="utf-8")
+        from app.services.translation_layout import synchronize
+        translations, warnings = [], []
+        for index, entry in enumerate(request.get("translations", [])):
+            try:
+                synced = synchronize(Path(entry["saved"]), Path(request["saved"]), Path(request["output"]),
+                                     Path(request["output"]).parent / f"translation-{index}")
+                if synced["changed"]:
+                    translations.append({**synced, "language": entry["language"], "attachmentID": entry["attachmentID"]})
+            except Exception as error:
+                warnings.append(f"{entry.get('language', '')} 译文类别同步未完成：{error}")
+        Path(request["result"]).write_text(json.dumps({"artifact": artifact, "translations": translations,
+            "warnings": warnings}, ensure_ascii=False), encoding="utf-8")
     except Exception as error:
         Path(request["result"]).write_text(json.dumps({"error": str(error)}, ensure_ascii=False), encoding="utf-8")
         sys.exit(1)

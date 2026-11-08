@@ -394,6 +394,8 @@ class BlockPatch(BaseModel):
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
+    from app.parsing.paddle_cloud import cloud_enabled
+    cloud = cloud_enabled()
     orch = Orchestrator(settings.workspace)
     jobs = JobStore(settings, orch)
     store = DocumentStore(settings)
@@ -454,11 +456,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ---- 任务 ----
     @app.post("/api/jobs")
     async def create_job(
+        request: Request,
         upload: UploadFile = File(...),
         ocr_mode: str = Form(""),
         device: str = Form("auto"),
         force: bool = Form(False),
     ):
+        if cloud and (ocr_mode != "official" or request.headers.get("x-paperloom-cloud") != "1"):
+            raise HTTPException(403, "云端 OCR 需由已选择云端模式的 Zotero 插件提交")
         pdf_path = _save_upload(upload, settings)
         job_id = jobs.create(
             pdf_path,
@@ -635,6 +640,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def zotero_status():
         from app.services.translation_export import EXPORT_VERSION
         return {"ok": True, "protocol": 2, "export_schema": EXPORT_VERSION,
+                "managed_owner": os.environ.get("PAPERBRIDGE_ZOTERO_OWNER") or None,
+                "cloud_ocr": cloud,
                 "features": ["ocr-export", "translations", "offline-reader", "force-ocr", "cancel-ocr", "edited-source"],
                 "ocr_modes": ["official", "auto", "native", "full", "hybrid"] +
                     (["rapidocr"] if __import__("importlib.util", fromlist=["find_spec"]).find_spec("rapid_doc") else [])}
@@ -838,6 +845,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/browser/import-url")
     async def import_url(request: Request):
+        if cloud:
+            raise HTTPException(403, "请从 Zotero 提交云端 OCR")
         _require_token(request)
         body = await request.json()
         url = (body or {}).get("url", "").strip()
@@ -875,6 +884,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/browser/upload")
     async def browser_upload(request: Request, upload: UploadFile = File(...)):
+        if cloud:
+            raise HTTPException(403, "请从 Zotero 提交云端 OCR")
         _require_token(request)
         pdf_path = _save_upload(upload, settings)
         job_id = jobs.create(pdf_path, ConvertOptions(ocr_mode=settings.ocr_mode))

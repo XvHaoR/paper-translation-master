@@ -478,6 +478,8 @@ class Orchestrator:
             callbacks = {}
             if getattr(recognizer, "supports_document_progress", False):
                 callbacks["progress"] = lambda page: report("recognizing", page, f"已识别 {page}/{pre.page_count} 页")
+            if getattr(recognizer, "supports_page_selection", False):
+                callbacks["pages"] = pages
             official_pages: list[OfficialPageResult] = recognize_document(
                 pdf_path, doc_dir / "assets" / "official", **callbacks
             )
@@ -494,7 +496,7 @@ class Orchestrator:
                 source_pdf=pdf_path.name,
                 page_count=pre.page_count,
                 parser={
-                    "name": "paddleocr-vl-official",
+                    "name": "paddleocr-vl-cloud" if getattr(recognizer, "supports_page_selection", False) else "paddleocr-vl-official",
                     "version": "PaddleOCRVL()",
                     "cache_version": self._cache_version(),
                     "settings": {"ocr_mode": "official"},
@@ -731,6 +733,9 @@ class Orchestrator:
             return None
         if self.recognizer is not None:
             return self.recognizer
+        from app.parsing.paddle_cloud import cloud_enabled, PaddleCloudRecognizer
+        if cloud_enabled():
+            return PaddleCloudRecognizer() if opts.ocr_mode == "official" else None
         device = (opts.ocr_device or "auto").strip().lower()
         # Official mode keeps PaddleOCR's output as the only content source.
         # A configured WSL FastDeploy endpoint may accelerate the VLM call, but

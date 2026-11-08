@@ -7,6 +7,8 @@
       try {
         const response = await Zotero.HTTP.request("GET", PL.serviceURL(url) + "/api/zotero/status", { timeout: 1500, responseType: "json" });
         return response.response?.protocol === 2 && response.response?.export_schema >= Math.max(7, PL.config?.minimumExportSchema || 7)
+          && !!response.response?.cloud_ocr === (this.backend() === "cloud")
+          && (!response.response?.managed_owner || response.response.managed_owner === this.instance)
           && (this.ocrMode() !== "rapidocr" || response.response?.ocr_modes?.includes("rapidocr"))
           && ["force-ocr", "cancel-ocr", "edited-source"].every(feature => response.response?.features?.includes(feature));
       }
@@ -52,8 +54,10 @@
       for (const path of candidates) if (await IOUtils.exists(path)) return path;
       return Subprocess.pathSearch(Zotero.isWin ? "python.exe" : "python3");
     },
+    cloudTokenPath() { return PathUtils.join(PL.Store.directory, "cloud-ocr-token"); },
     ocrMode() { return this.runtime?.ocrMode || PL.config?.ocrMode || "official"; },
     backend() {
+      if (PL.config?.cloudPreview) return "cloud";
       if (this.ocrMode() === "rapidocr") return "local";
       return this.runtime?.pinned ? this.runtime.backend : PL.pref("backend", this.runtime?.backend || PL.config.defaultBackend || "local");
     },
@@ -91,7 +95,7 @@
         // instance taking ownership away from a newly installed version.
         await IOUtils.remove(PathUtils.join(PL.Store.directory, "service-lease.json"), { ignoreAbsent: true });
         this.leasePath = PathUtils.join(PL.Store.directory, `service-lease-${this.instance}.json`);
-        this.statePath = PathUtils.join(PL.Store.directory, "service-state.json");
+        this.statePath = PathUtils.join(PL.Store.directory, `service-state-${this.instance}.json`);
         await this.heartbeat();
         clearInterval(this.heartbeatTimer);
         this.heartbeatTimer = setInterval(() => this.heartbeat().catch(error => Zotero.logError(error)), 10000);
@@ -100,6 +104,7 @@
         const arguments_ = ["-X", "utf8", PathUtils.join(root, "scripts", "zotero_service.py"), "--state-file", this.statePath,
           "--lease-file", this.leasePath, "--instance", this.instance, "--port", new URL(PL.serviceURL()).port || "80",
           "--backend", this.backend(), "--parent-pid", String(Services.appinfo.processID)];
+        if (this.backend() === "cloud") arguments_.push("--cloud-token-file", this.cloudTokenPath());
         if (this.ocrMode() === "rapidocr") arguments_.push("--ocr-mode", "rapidocr");
         if (this.runtime?.descriptor) arguments_.push("--runtime-config",this.runtime.descriptor);
         this.process = await Subprocess.call({ command: python, arguments: arguments_, workdir: root, stderr: "stdout" });
@@ -172,6 +177,11 @@
       this.update("stopping", "正在停止服务并释放模型…");
       await this.releaseLease();
       if (this.process) await this.process.wait();
+      const finalState = await IOUtils.readJSON(this.statePath).catch(()=>null);
+      if (finalState?.instance === this.instance && finalState.phase === "failed") {
+        this.update("failed", finalState.message);
+        throw new Error(finalState.message);
+      }
       this.instance = null;
       this.process = null;
       this.owned = false;

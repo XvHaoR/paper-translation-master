@@ -22,7 +22,7 @@ from app.services import translator
 from app.services.figure_export import export_figures
 from app.services.offline_reader import render_sections, copy_runtime
 
-EXPORT_VERSION = 12
+EXPORT_VERSION = 13
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 
@@ -103,12 +103,12 @@ def _safe_html(markdown: str) -> str:
 
 
 def reader_page(title: str, language: str, markdown: str, original: str | None = None,
-                *, blocks: list[Block] | None = None, originals: list[Block] | None = None, editor: dict | None = None) -> str:
+                *, blocks: list[Block] | None = None, originals: list[Block] | None = None, editor: dict | None = None, target_html: dict | None = None, source_html: dict | None = None) -> str:
     """A saved page has no runtime/service dependency and can be embedded by Zotero."""
     translated = original is not None
     filename = "translation.md" if translated else "ocr.md"
     label = "译文" if translated else "OCR"
-    content = render_sections(blocks, originals, _safe_html) if blocks is not None else _safe_html(markdown)
+    content = render_sections(blocks, originals, _safe_html, target_html=target_html, source_html=source_html) if blocks is not None else _safe_html(markdown)
     controls = ('<button type="button" data-translation-mode="bilingual">逐段双语</button> '
                 '<button type="button" data-translation-mode="translation">仅译文</button>') if translated and blocks is not None else ""
     return f'''<!DOCTYPE html><html lang="{html.escape(language, quote=True)}"><head>
@@ -250,6 +250,12 @@ def create_translation(doc_dir: Path, config: dict, cache: translator.TranslateC
                         copy.content.items = copy.content.text.splitlines()
                 translated.append(copy)
             markdown = render_markdown(translated)
+            # Persist pairs so later classification changes can be applied
+            # offline, without translating again or parsing rendered formulas.
+            (staging / "translation-state.json").write_text(json.dumps({
+                "schema": 1, "originals": [b.model_dump(mode="json") for b in blocks],
+                "translated": [b.model_dump(mode="json") for b in translated],
+            }, ensure_ascii=False), encoding="utf-8")
             (staging / "translation.md").write_text(markdown, encoding="utf-8")
             (staging / "original.md").write_text(original, encoding="utf-8")
             title = data.get("document", {}).get("title") or "论文翻译大师 译文"

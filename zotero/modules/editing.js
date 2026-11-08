@@ -50,7 +50,14 @@
       try {
         const output = PathUtils.join(temp.path, "content"), resultPath = PathUtils.join(temp.path, "result.json");
         const requestPath = PathUtils.join(temp.path, "request.json");
-        await IOUtils.writeJSON(requestPath, {saved:directory,output,result:resultPath,
+        const translations = [];
+        for (const language of Object.keys(PL.Store.ensure(source).translations || {})) {
+          const translation = await PL.Store.saved(source,"translate",language);
+          if (!translation) continue;
+          const file = await translation.attachment.getFilePathAsync();
+          if (file) translations.push({language,saved:PathUtils.parent(file),attachmentID:translation.attachmentID});
+        }
+        await IOUtils.writeJSON(requestPath, {saved:directory,output,result:resultPath,translations,
           workspace:PL.Service.runtime?.environment?.PAPERBRIDGE_WORKSPACE || PathUtils.join(root,"workspace"),
           save,base_revision:manifest.edit_revision || null,changes:data.changes || {},insertions:data.insertions || []});
         const {Subprocess} = ChromeUtils.importESModule("resource://gre/modules/Subprocess.sys.mjs");
@@ -64,6 +71,16 @@
         const latest = await PL.Store.saved(source,"ocr");
         if (latest?.attachmentID !== saved.attachmentID) throw new Error("保存期间 OCR 版本已更新，请重新编辑");
         const updated = await PL.Artifacts.save(source,"ocr",saved.hash,response.artifact,output,PL.language());
+        for (const translation of response.translations || []) {
+          const latestTranslation = await PL.Store.saved(source,"translate",translation.language);
+          if (latestTranslation?.attachmentID !== translation.attachmentID) continue;
+          const synced = await PL.Artifacts.save(source,"translate",saved.hash,translation.artifact,translation.output,translation.language);
+          for (const [openReader,state] of PL.ReaderUI.states) {
+            if (openReader.itemID === source.id && state.kind === "translate" &&
+                state.saved?.attachmentID === translation.attachmentID) await PL.ReaderUI.showSaved(openReader,synced,"translate");
+          }
+        }
+        for (const warning of response.warnings || []) Zotero.logError(new Error(warning));
         await PL.Store.flush();
         if (PL.ReaderUI.states.has(reader)) await PL.ReaderUI.showSaved(reader,updated,"ocr");
         return updated;

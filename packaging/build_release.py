@@ -24,7 +24,7 @@ TEXT_EXTENSIONS = {".py", ".js", ".mjs", ".cjs", ".css", ".html", ".xhtml", ".js
                    ".md", ".toml", ".txt", ".yml", ".yaml", ".ps1", ".cmd", ".sh"}
 STATIC_EXTENSIONS = {".js", ".css", ".html", ".json", ".svg", ".png", ".woff", ".woff2"}
 INSTALLER_EXTENSIONS = {".py", ".txt", ".md", ".ps1", ".cmd", ".json"}
-RUNTIME_SCRIPTS = {"scripts/launcher.py", "scripts/zotero_service.py", "scripts/ocr_health.py",
+RUNTIME_SCRIPTS = {"scripts/launcher.py", "scripts/zotero_service.py", "scripts/wsl_model.py", "scripts/ocr_health.py",
                    "scripts/process_lifetime.py", "scripts/edit_saved_ocr.py", "scripts/runtime_config.py"}
 ROOT_FILES = {"pyproject.toml", "release.json", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"}
 SOURCE_ROOT_FILES = ROOT_FILES | {".gitignore"}
@@ -49,6 +49,8 @@ def eligible(relative: str, *, source: bool = False) -> bool:
                 or (relative.startswith("app/static/mathjax/") and path.name in {"LICENSE", "NOTICE"}))
     if relative.startswith("licenses/"):
         return path.suffix in {".txt", ".md"} or path.name in {"LICENSE", "NOTICE"}
+    if source and relative == "scripts/build_cloud_bundle.py":
+        return True
     if relative in RUNTIME_SCRIPTS:
         return True
     if relative.startswith("packaging/installer/"):
@@ -81,6 +83,8 @@ def files(root: Path, *, source: bool = False) -> list[Path]:
             candidates.update(path for path in (root / directory).rglob("*") if path.is_file())
     if source:
         candidates.add(root / "packaging/build_release.py")
+        if (root / "scripts/build_cloud_bundle.py").is_file():
+            candidates.add(root / "scripts/build_cloud_bundle.py")
     result = sorted(path for path in candidates if eligible(path.relative_to(root).as_posix(), source=source))
     for path in result:
         if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
@@ -154,7 +158,7 @@ def build_release(*, root: Path = ROOT, output: Path | None = None,
     archive(root, runtime)
     archive(root, source, source=True)
     artifacts = [xpi, runtime, source]
-    if installer:
+    if installer and not release.get("cloudPreview"):
         subprocess.run([sys.executable, str(root / "packaging/installer/build.py"),
                         "--runtime", str(runtime), "--output", str(output)], check=True, cwd=root)
         executable = output / f"{slug}-setup-{version}.exe"
@@ -168,9 +172,14 @@ def build_release(*, root: Path = ROOT, output: Path | None = None,
             if not cpu_executable.is_file():
                 raise ValueError("CPU installer build did not produce the expected executable")
             artifacts.append(cpu_executable)
-    updates = output / "updates.json"
+    updates = output / ("cloud-updates.json" if release.get("cloudPreview") else "updates.json")
     updates.write_text(json.dumps(update_manifest(release, manifest, xpi), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     artifacts.append(updates)
+    legacy = root / "zotero/local-updates.json"
+    if release.get("cloudPreview") and legacy.is_file():
+        local_updates = output / "updates.json"
+        local_updates.write_bytes(legacy.read_bytes())
+        artifacts.append(local_updates)
     checksums = output / "SHA256SUMS"
     checksums.write_text("".join(f"{digest(path)}  {path.name}\n" for path in artifacts), encoding="ascii")
     artifacts.append(checksums)
@@ -191,6 +200,16 @@ def build_release(*, root: Path = ROOT, output: Path | None = None,
         "安装器暂未进行 Windows 代码签名，系统可能显示未知发布者。可用 SHA256SUMS 校验下载文件。\n"
         "首次模型下载和安装可能需要较长时间，安装窗口会显示进度及错误日志。\n",
         encoding="utf-8")
+    if release.get("cloudPreview"):
+        notes.write_text(f"论文翻译大师 · 云端版 {version}\n\n" +
+            "".join(f"- {item}\n" for item in release["changes"]) +
+            "\nWindows 首次使用：下载 Windows x64 完整 ZIP，解压并运行 Install-Cloud.cmd，" +
+            "然后在 Zotero 中从文件安装包内 XPI。填写自己的飞桨 AI Studio Access Token 即可使用。\n\n" +
+            "注册：https://aistudio.baidu.com/ ，密钥：https://aistudio.baidu.com/account/accessToken 。" +
+            "云端识别会上传所选 PDF。单次本地文件最多 50 MB，额度以官方控制台为准。\n\n" +
+            "功能与本地版一致，硬件要求不同；不承诺速度或识别结果完全一致。无需 NVIDIA、CUDA、WSL 或本机 OCR 模型。" +
+            "翻译使用单独配置的大模型接口。已有 OCR 与译文仍可离线查看。\n\n" +
+            "升级需手动选择云端版，避免将仍使用本机模型的用户自动切到云端。详见 README。\n", encoding="utf-8")
     artifacts.append(notes)
     print("\n".join(str(path) for path in artifacts))
     return artifacts

@@ -56,6 +56,9 @@ def build(*, portable: bool = False, output: Path | None = None,
                   "releaseURL": f"https://github.com/{release['repository']}/releases",
                   "releaseVersion": release["version"], "displayName": release["name"]}
         config["minimumExportSchema"] = release.get("minimumExportSchema", 7)
+        if release.get("cloudPreview"):
+            config.update(cloudPreview=True, defaultBackend="cloud")
+            manifest["applications"]["zotero"]["update_url"] = f"https://github.com/{release['repository']}/releases/latest/download/cloud-updates.json"
         if release.get("localOnly"):
             manifest["applications"]["zotero"]["update_url"] = "https://127.0.0.1/paperloom-html-preview-updates.json"
             config["localHTMLPreview"] = True

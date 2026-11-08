@@ -86,18 +86,21 @@
       if ((await IOUtils.stat(path)).size > 200 * 1024 * 1024) throw new Error("PDF 超过 200MB 限制");
       return { path, hash: await Zotero.Utilities.Internal.md5Async(Zotero.File.pathToFile(path)) };
     },
+    autoPref() { return PL.Service?.backend?.() === "cloud" ? "cloudAutoOCR" : "autoOCR"; },
     async parse(task, fingerprint) {
       await PL.Service.ensure();
       this.check(task);
       const window = task.window;
       if (!window || window.closed) throw new Error("Zotero 窗口已关闭");
+      const cloud = PL.Service.backend?.() === "cloud";
+      if (cloud && (await IOUtils.stat(fingerprint.path)).size > 50000000) throw new Error("云端 OCR 上传上限为 50 MB，请先拆分 PDF");
       const form = new window.FormData();
       form.append("ocr_mode", PL.Service.ocrMode());
       form.append("force", String(!!task.force || !!PL.Store.get(task.source)?.forceNextOCR));
       form.append("upload", new window.Blob([await IOUtils.read(fingerprint.path)], { type: "application/pdf" }), PathUtils.filename(fingerprint.path));
       // Record the server job ID even if cancellation races with the upload
       // response, so the newly submitted job can still be cancelled below.
-      const uploaded = await PL.request("POST", "/api/jobs", undefined, { body: form, headers: { "Content-Type": "multipart/form-data" },
+      const uploaded = await PL.request("POST", "/api/jobs", undefined, { body: form, headers: { "Content-Type": "multipart/form-data", ...(cloud ? {"X-PaperLoom-Cloud":"1"} : {}) },
         requestObserver: xhr => { task.xhr = xhr; if (task.cancelled) xhr.abort(); } });
       task.jobID = uploaded.job_id;
       if (task.cancelled) {
@@ -299,7 +302,7 @@
         if (event === "delete" || event === "trash") {
           PL.Store.reconcile().then(() => { PL.Store.flush(); PL.Store.refresh(); }).catch(error => Zotero.logError(error));
         }
-        if (!PL.pref("autoOCR", false)) return;
+        if (!PL.pref(this.autoPref(), false)) return;
         if (event === "add") for (const id of ids) this.autoCandidates.set(id, { started: Date.now() });
         if (event === "add" || (event === "modify" && ids.some(id => this.autoCandidates.has(id)))) {
           clearTimeout(this.autoTimer);
@@ -308,7 +311,7 @@
       } }, ["item"], "paperloom");
     },
     async processAuto() {
-      if (!PL.alive || !PL.pref("autoOCR", false)) { this.autoCandidates.clear(); return; }
+      if (!PL.alive || !PL.pref(this.autoPref(), false)) { this.autoCandidates.clear(); return; }
       for (const [id, candidate] of this.autoCandidates) {
         const item = await Zotero.Items.getAsync(id);
         if (!item || item.deleted || !item.isAttachment() || item.attachmentContentType !== "application/pdf") {

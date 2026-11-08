@@ -6,6 +6,28 @@ from types import SimpleNamespace
 from scripts import zotero_service
 
 
+def test_concurrent_startup_and_shutdown_updates_are_complete_json(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import time
+    state = tmp_path / "state.json"
+    zotero_service.write_state(state, "initial", "checking", "initial")
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(zotero_service.write_state, state, str(i), "stopped", str(i) * (1000+i)) for i in range(80)]
+        while not all(job.done() for job in futures):
+            try:
+                data = json.loads(state.read_text(encoding="utf-8"))
+            except PermissionError:
+                time.sleep(.001)
+                continue
+            if data["instance"] != "initial":
+                i = int(data["instance"])
+                assert data["message"] == str(i) * (1000+i)
+            time.sleep(.001)
+        for job in futures:
+            job.result()
+    assert not list(tmp_path.glob("*.tmp"))
+
+
 def test_occupied_port_falls_back_without_stopping_existing_listener():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("127.0.0.1", 0))
@@ -55,35 +77,24 @@ def test_invalid_lease_fails_before_launching_any_process(tmp_path, monkeypatch)
     assert json.loads(args.state_file.read_text(encoding="utf-8"))["phase"] == "failed"
 
 
-def test_unhealthy_live_model_restarts_and_passes_probe_before_api_launch(tmp_path, monkeypatch):
-    monkeypatch.setattr(zotero_service, "WindowsJob", lambda: SimpleNamespace(assign=lambda p: None, resume=lambda p: None, close=lambda: None))
+def test_unhealthy_live_model_stops_without_restarting_or_launching_api(tmp_path, monkeypatch):
     monkeypatch.setattr(zotero_service, "__file__", str(tmp_path / "scripts" / "zotero_service.py"))
-    leases = iter([True, True, True, False])
-    compatible = iter([False, True])
-    monkeypatch.setattr(zotero_service, "lease_valid", lambda *a: next(leases))
-    monkeypatch.setattr(zotero_service, "compatible_service", lambda *a: next(compatible))
+    monkeypatch.setattr(zotero_service, "lease_valid", lambda *a: True)
+    monkeypatch.setattr(zotero_service, "compatible_service", lambda *a: False)
     monkeypatch.setattr(zotero_service, "acquire_lock", lambda *a: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(zotero_service, "available_port", lambda value: value)
     monkeypatch.setattr(zotero_service.launcher, "ensure_wsl_keepalive", lambda *a: None)
-    monkeypatch.setattr(zotero_service.launcher, "is_up", lambda *a: True)
-    monkeypatch.setattr(zotero_service.launcher, "start_vlm", lambda: True)
-    commands, probes, launches = [], [], []
-    def probe():
-        probes.append(True)
-        if len(probes) <= 2:
-            raise RuntimeError("HTTP works but OCR is corrupt")
-    monkeypatch.setattr(zotero_service, "probe_vlm", probe)
-    monkeypatch.setattr(zotero_service.subprocess, "run", lambda command, **kw: commands.append(command))
-    def launch(command, **kwargs):
-        assert len(probes) == 3, "no API may launch before the OCR probe succeeds"
-        launches.append(kwargs)
-        return SimpleNamespace(pid=123, poll=lambda: None, terminate=lambda: None, wait=lambda **kw: None)
-    monkeypatch.setattr(zotero_service.subprocess, "Popen", launch)
+    calls = []
+    monkeypatch.setattr(zotero_service, "WSLModel", lambda: SimpleNamespace(start=lambda ready:calls.append("start"),close=lambda:calls.append("stop")))
+    monkeypatch.setattr(zotero_service.time, "sleep", lambda *a: None)
+    monkeypatch.setattr(zotero_service, "probe_vlm", lambda: (_ for _ in ()).throw(RuntimeError("OCR probe failed")))
+    monkeypatch.setattr(zotero_service.subprocess, "Popen", lambda *a, **kw: pytest.fail("no API before healthy OCR"))
     args = SimpleNamespace(state_file=tmp_path / "state.json", lease_file=tmp_path / "lease.json",
                            instance="test", port=8765, workspace=str(tmp_path / "data"), backend="wsl")
-    assert zotero_service.run(args) == 0
-    assert any("restart" in command for command in commands)
-    assert launches[0]["env"]["PAPERBRIDGE_OCR_PAGE_BATCH_SIZE"] == "2"
+    assert zotero_service.run(args) == 1
+    assert calls == ["start", "stop"]
+    state = json.loads(args.state_file.read_text(encoding="utf-8"))
+    assert state["phase"] == "failed" and state["message"] == "OCR probe failed"
 
 
 def test_single_slow_probe_reuses_warm_model(monkeypatch):
@@ -109,7 +120,16 @@ def test_old_export_service_is_not_mistaken_for_current_backend(monkeypatch):
     assert not zotero_service.compatible_service("http://127.0.0.1:8765")
     monkeypatch.setattr(zotero_service.urllib.request, "urlopen", lambda *a, **kw: BytesIO(b'{"protocol":2,"export_schema":7,"features":["force-ocr","cancel-ocr","edited-source"]}'))
     assert not zotero_service.compatible_service("http://127.0.0.1:8765")
-    monkeypatch.setattr(zotero_service.urllib.request, "urlopen", lambda *a, **kw: BytesIO(b'{"protocol":2,"export_schema":12,"features":["force-ocr","cancel-ocr","edited-source"]}'))
+    monkeypatch.setattr(zotero_service.urllib.request, "urlopen", lambda *a, **kw: BytesIO(b'{"protocol":2,"export_schema":13,"features":["force-ocr","cancel-ocr","edited-source"]}'))
     assert zotero_service.compatible_service("http://127.0.0.1:8765")
+
+
+def test_another_managed_session_is_not_reused_as_an_external_service(monkeypatch):
+    from io import BytesIO
+    status = {"protocol":2,"export_schema":13,"features":["force-ocr","cancel-ocr","edited-source"],"managed_owner":"first"}
+    monkeypatch.setattr(zotero_service.urllib.request, "urlopen", lambda *a, **kw: BytesIO(json.dumps(status).encode()))
+    assert not zotero_service.compatible_service("http://127.0.0.1:8765")
+    assert not zotero_service.compatible_service("http://127.0.0.1:8765",owner="second")
+    assert zotero_service.compatible_service("http://127.0.0.1:8765",owner="first")
 
 

@@ -147,7 +147,7 @@ def test_old_saved_editor_refresh_keeps_corrections_without_model_calls(paper,tm
     monkeypatch.setattr(translator,'translate_batch',forbidden)
     second=tmp_path/'refreshed'
     refreshed=prepare_or_save(first,second,tmp_path,{"save":False,"base_revision":edited["edit_revision"]})
-    assert refreshed['schema']==12 and refreshed['edit_revision']==edited['edit_revision']
+    assert refreshed['schema']==13 and refreshed['edit_revision']==edited['edit_revision']
     assert (first/'source.json').read_bytes()==(second/'source.json').read_bytes()
     assert (first/'editor.json').read_bytes()==(second/'editor.json').read_bytes()
     assert (second/'assets/ocr_editor.js').read_bytes()==(Path(__file__).resolve().parents[2]/'app/static/ocr_editor.js').read_bytes()

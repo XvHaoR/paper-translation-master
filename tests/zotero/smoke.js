@@ -658,6 +658,25 @@ startup = async function (...args) {
       const editedTranslationMD=await IOUtils.readUTF8(PathUtils.join(PathUtils.parent(editedTranslationPath),"translation.md"));
       check(afterEdit.ocr===beforeEdit.ocr&&afterEdit.llm>beforeEdit.llm&&editedTranslationMD.includes("Manually corrected")&&editedTranslationMD.includes("Main"),"manual translation uses the corrected snapshot and new title without OCR");
       check(!PL.Editing.stale(PL.Store.get(automatic)),"new translation is linked to the current correction revision");
+      // A classification-only correction updates saved translation pairs locally.
+      await PL.ReaderUI.load(restored,"ocr");
+      const rolePayload=await IOUtils.readJSON(PathUtils.join(PathUtils.parent(secondEditPath),"editor.json"));
+      const roleChanges=JSON.parse(JSON.stringify(rolePayload.changes));
+      roleChanges[correctedCaption]={...roleChanges[correctedCaption],role:"figure_caption"};
+      const beforeRoleSync=await PL.request("GET","/api/testing/calls");
+      PL.request=async()=>{throw new Error("Classification sync must remain offline");};
+      await PL.Editing.save(restored,{changes:roleChanges,insertions:rolePayload.insertions});
+      PL.request=request;
+      const roleTranslation=await PL.Store.saved(automatic,"translate");
+      const rolePath=await roleTranslation.attachment.getFilePathAsync();
+      const rolePage=await IOUtils.readUTF8(rolePath);
+      check(roleTranslation.attachmentID!==editedTranslation.attachmentID&&rolePage.includes('data-role="figure_caption"')
+        &&rolePage.includes("Manually corrected")&&rolePage.includes('data-latex='),"type-only save creates a matching translation layout while preserving translated text and formulas");
+      check(!PL.Editing.stale(PL.Store.get(automatic)),"classification-only save keeps translation current");
+      const afterRoleSync=await PL.request("GET","/api/testing/calls");
+      check(afterRoleSync.ocr===beforeRoleSync.ocr&&afterRoleSync.llm===beforeRoleSync.llm,"translation classification sync makes no OCR or LLM request");
+      PL.Store.records={};await PL.Store.reconcile();
+      check(!PL.Editing.stale(PL.Store.get(automatic)),"classification-linked translation survives attachment state reconstruction");
       window.Zotero_Tabs.select(reader.tabID);
 
       // Selection takes place in the dialog. Main-window selection is not the
