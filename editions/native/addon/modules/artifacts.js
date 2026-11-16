@@ -101,31 +101,20 @@
       finally { await IOUtils.remove(temporary.path, { recursive: true, ignoreAbsent: true }); }
     },
     async save(source, kind, hash, artifact, directory, language) {
-      const parentItemID = source.parentItemID || undefined;
-      const parent = parentItemID ? Zotero.Items.get(parentItemID) : source;
+      const { parent } = await PL.AttachmentGroups.ensure(source);
+      const parentItemID = parent.id;
       const title = `论文翻译大师 ${kind === "ocr" ? "解析" : `译文 [${language}]`} — ${parent.getField("title") || source.key}`;
       const created = [];
       try {
-        let reader;
-        if (parentItemID) {
-          reader = await Zotero.Attachments.importSnapshotFromFile({
-            file: PathUtils.join(directory, "index.html"), parentItemID, title,
-            contentType: "text/html", charset: "utf-8", singleFile: false, url: source.getField("url") || "",
-          });
-        }
-        else {
-          reader = await Zotero.Attachments.importFromFile({
-            file: PathUtils.join(directory, "index.html"), libraryID: source.libraryID,
-            title, contentType: "text/html", collections: source.getCollections(),
-          });
-        }
+        const reader = await Zotero.Attachments.importSnapshotFromFile({
+          file: PathUtils.join(directory, "index.html"), parentItemID, title,
+          contentType: "text/html", charset: "utf-8", singleFile: false, url: source.getField("url") || "",
+        });
         created.push(reader);
-        if (!parentItemID) await Zotero.File.copyDirectory(directory, Zotero.Attachments.getStorageDirectory(reader).path);
         if (kind === "translate") {
           const md = await Zotero.Attachments.importFromFile({
             file: PathUtils.join(directory, "translation.md"), parentItemID, libraryID: source.libraryID,
             title: `${title} (Markdown)`, contentType: "text/markdown",
-            ...(parentItemID ? {} : { collections: source.getCollections() }),
           });
           created.push(md);
           await Zotero.File.copyDirectory(PathUtils.join(directory, "assets"), PathUtils.join(Zotero.Attachments.getStorageDirectory(md).path, "assets"));

@@ -37,6 +37,7 @@ jobs:
       - run: python -m pip install -r runtime/requirements.txt
       - run: python -m unittest discover -s tests -v
       - run: node tests/test_tasks.cjs
+      - run: node tests/test_attachment_groups.cjs
       - run: python tools/package.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
