@@ -1,0 +1,45 @@
+name: Native text edition
+on:
+  pull_request:
+    paths:
+      - 'editions/native/**'
+      - 'docs/NATIVE_EDITION.md'
+      - '.github/workflows/native.yml'
+  push:
+    branches: [main, feature/native-pdf-parsing]
+    paths:
+      - 'editions/native/**'
+      - 'docs/NATIVE_EDITION.md'
+      - '.github/workflows/native.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: editions/native
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: editions/native/runtime/requirements.txt
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+      - run: python -m pip install -r runtime/requirements.txt
+      - run: python -m unittest discover -s tests -v
+      - run: node tests/test_tasks.cjs
+      - run: python tools/package.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-${{ matrix.os }}
+          path: editions/native/dist/release/*
+          if-no-files-found: error

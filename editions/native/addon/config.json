@@ -1,0 +1,10 @@
+{
+  "projectRoot": "",
+  "pythonCandidates": [],
+  "defaultBackend": "local",
+  "runtimeDirectory": "PaperTranslationMasterNative",
+  "displayName": "论文翻译大师 · 本地解析版",
+  "minimumExportSchema": 13,
+  "autoParser": true,
+  "nativeParserVersion": "native-layout-v6-line-numbers"
+}

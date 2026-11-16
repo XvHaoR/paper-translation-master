@@ -1,0 +1,28 @@
+/* Compact reading layout, also applied by Zotero to previously saved pages. */
+body { margin: 12px auto; padding: 0 18px; line-height: 1.6; }
+.pl-source,.pl-target{color:var(--pl-ocr-color,CanvasText)!important;font-family:var(--pl-ocr-font,system-ui,sans-serif)!important}
+.pl-source+.pl-target{color:var(--pl-translation-color,CanvasText)!important;font-family:var(--pl-translation-font,system-ui,sans-serif)!important}
+.pl-source a,.pl-target a{color:inherit}
+.pl-block { padding: 3px 6px; margin: 6px 0; scroll-margin-top: 24px; }
+.pl-target p, .pl-source p { margin: .3em 0; }
+.pl-target > :first-child, .pl-source > :first-child { margin-top: 0; }
+.pl-target > :last-child, .pl-source > :last-child { margin-bottom: 0; }
+.pl-block[data-block-type="heading"] { margin-top: 12px; }
+.pl-source { margin-bottom: 6px; }
+.pl-source + .pl-target { padding-top: 6px; }
+.pl-block-tools { top: -12px; font-size: 11px; gap: 4px; }
+.pl-block-tools button { font: inherit; padding: 1px 4px; }
+/* Types are visible on selection without changing normal paragraph spacing. */
+.pl-role{display:none;position:absolute;left:4px;top:-11px;font:10px system-ui;background:Canvas;color:#52709b;padding:0 3px;z-index:2}
+.pl-block:hover>.pl-role,.pl-block.selected>.pl-role,body.pl-editing .pl-role{display:block}
+.pl-editor-bar{position:sticky;bottom:0;display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:Canvas;border:1px solid #8885;padding:8px;z-index:20;font:12px system-ui}
+.pl-editor-bar[hidden]{display:none}
+body.pl-editing .pl-block{opacity:1!important;margin:18px 0}
+.pl-edit-fields{display:none;border-top:1px dashed #8885;margin-top:6px;padding:6px;background:#8881;font:12px system-ui}
+.pl-block.selected>.pl-edit-fields{display:block}
+.pl-edit-fields textarea{display:block;width:100%;box-sizing:border-box;resize:vertical;margin:6px 0;font:14px/1.45 ui-monospace,monospace;background:Canvas;color:CanvasText;border:1px solid #8886;padding:8px}
+.pl-edit-fields select,.pl-inserted-heading input{background:Canvas;color:CanvasText;border:1px solid #8885;padding:4px}
+.pl-inserted-heading{border:1px dashed #3875d7;padding:8px;font:12px system-ui}
+.pl-inserted-heading input{width:50%;font:14px ui-monospace,monospace}
+.pl-deleted>.pl-target,.pl-deleted>.pl-source,.pl-deleted>.pl-block-tools{display:none!important}
+.pl-deletion-note{font:13px system-ui;color:#955;padding:6px;background:#e992}
