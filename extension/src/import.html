@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>论文翻译大师 导入</title>
+<link rel="stylesheet" href="popup.css">
+<style>
+  body { padding: 20px; }
+  .wrap { max-width: 520px; margin: 0 auto; }
+  h1 { font-size: 17px; }
+  #current-url { word-break: break-all; background: #f3f4f6; padding: 8px; border-radius: 6px; font-size: 12px; }
+  button.primary { max-width: 260px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>论文翻译大师 导入 PDF</h1>
+  <p class="hint">当前标签页：</p>
+  <div id="current-url">—</div>
+
+  <p class="hint" style="margin-top:12px">
+    需要登录的 PDF：点击下面按钮后，扩展会请求该网站的一次性访问权限，
+    然后直接读取 PDF 字节并上传到本地服务。若网站禁止跨域读取，请改用
+    "选择本地 PDF"。
+  </p>
+  <button id="btn-fetch" class="primary">从当前网页读取 PDF</button>
+  <button id="btn-file" style="margin-top:8px">选择本地 PDF…</button>
+
+  <div id="progress-box" class="progress-box" hidden>
+    <div class="progress-bar"><div id="progress-fill"></div></div>
+    <p id="progress-text" class="progress-text"></p>
+  </div>
+  <p id="msg"></p>
+</div>
+<script src="import.js"></script>
+</body>
+</html>

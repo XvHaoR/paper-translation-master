@@ -1,0 +1,85 @@
+/* PaperBridge 弹窗交互 */
+body {
+  font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  color: #1a1a1a;
+  margin: 0;
+}
+.popup { width: 300px; padding: 14px; }
+h1 { font-size: 15px; margin: 0 0 10px; }
+.status {
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.status-ok { background: #ecfdf5; color: #065f46; }
+.status-err { background: #fef2f2; color: #991b1b; }
+.status-unknown { background: #f3f4f6; color: #374151; }
+button.primary {
+  width: 100%;
+  padding: 9px;
+  border: none;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+button.primary:disabled { background: #bfdbfe; cursor: default; }
+#btn-file {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+#btn-file:disabled { color: #9ca3af; cursor: default; }
+.pair-box { margin: 8px 0; border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px; }
+.pair-box summary { cursor: pointer; font-weight: 600; }
+.hint { color: #6b7280; font-size: 11px; margin: 6px 0; }
+.pair-row { display: flex; gap: 6px; }
+.pair-row input {
+  flex: 1;
+  padding: 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  letter-spacing: 4px;
+}
+.pair-row button {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  background: #059669;
+  color: #fff;
+  cursor: pointer;
+}
+.pair-msg { font-size: 11px; color: #991b1b; margin: 6px 0 0; }
+.progress-box { margin: 8px 0; }
+.progress-bar {
+  height: 8px;
+  background: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.progress-fill, #progress-fill {
+  height: 100%;
+  width: 0;
+  background: #2563eb;
+  transition: width 0.4s;
+}
+.progress-text { font-size: 11px; color: #6b7280; margin: 6px 0 0; }
+footer { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+button.link {
+  border: none;
+  background: none;
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+.ver { color: #9ca3af; font-size: 11px; }

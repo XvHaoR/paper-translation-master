@@ -1,0 +1,19 @@
+{
+  "addons": {
+    "paperloom@paperloom.local": {
+      "updates": [
+        {
+          "version": "0.5.0",
+          "update_link": "https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-0.5.0.xpi",
+          "update_hash": "sha256:a34fae5f456d51b7c8957f116555f1908d7aa5bce4b158fee5f88b98d91cd9fc",
+          "applications": {
+            "zotero": {
+              "strict_min_version": "7.0",
+              "strict_max_version": "10.0.*"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

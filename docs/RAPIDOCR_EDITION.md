@@ -1,0 +1,66 @@
+# RapidOCR 本地 CPU 方案
+
+本地 CPU 版继续提供完整安装包。若希望免本机模型部署，可另选[云端版](../README.md)；两者使用的识别模型不同，不承诺相同识别效果。
+
+# RapidOCR 完整文档引擎
+
+当前推荐使用 **0.5.0**：与 GPU 版使用同一个 HTML 阅读插件，下载同版本 RapidOCR CPU 安装器。此前 0.4.0／0.4.1 仅作历史归档，不再推荐安装。安装与升级步骤见 [安装说明](INSTALLATION.md)。
+
+## 识别功能
+
+并非单独用 RapidOCR 提取文字。完整流水线使用 RapidAI 官方 RapidDoc 0.9.11：
+
+| 内容 | 处理方式 |
+| --- | --- |
+| 标题、正文、摘要、图名、表名 | PP-DocLayoutV3 版面与阅读顺序，保留原始类别 |
+| 文字 | RapidOCR 3.10.0；可利用 PDF 自带文字，仍执行公式和表格分析 |
+| 行内与行间公式 | PP-FormulaNet_plus-M；保持公式识别开启，输出可复制的 LaTeX |
+| 有线与无线表格 | 表格分类 + UNET / SLANet-plus；保留 HTML 单元格与 Excel 导出 |
+| 组合图 | 官方图片区域 + 现有组合图导出，保留原始 PDF 区域 |
+
+公式和表格未返回结构化结果时，任务会报出具体原因；不会用纯文字或截图冒充完整识别。
+不同模型的准确率不会完全相同，切换后可以保留原结果对照、编辑和复核。
+完整功能模式没有通过关闭行内公式、降低分辨率或裁掉表格来追求耗时数字。
+
+## 安装
+
+1. 首次安装下载 [RapidOCR 引擎安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-rapidocr-setup-0.5.0.exe)，安装独立 OCR 引擎；旧引擎也需运行新版安装器更新代码，可复用原模型和缓存。
+2. 在 Zotero 插件管理器安装 [0.5.0 通用 XPI](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-0.5.0.xpi) 并重启。
+3. 打开设置检测引擎并保存；按需配置自己的翻译服务。已有 OCR 和译文可直接查看。
+
+安装器适用于 Windows 10 2004+／Windows 11 x64，CPU 即可，无需独立显卡、NVIDIA 驱动、CUDA、WSL 或系统 Python。
+建议至少 8 GB 内存，安装盘至少 5 GB 空间；首次联网下载运行库与完整模型。
+公式模型约 566 MB，版面模型约 124 MB，另有文字、表格模型与 Python 依赖；完整功能需要这些模型。
+默认安装目录 `%LOCALAPPDATA%/PaperTranslationMasterRapidOCR`，与 VL 引擎隔离，不覆盖其 Python 或模型。
+
+首次安装必须在扫描 PDF 上同时验证文字、LaTeX 公式、表格结构；只有全部通过才注册引擎。
+模型在同一服务中复用，批量完成不打开阅读标签页，退出 Zotero 后仍按原租约机制清理进程。
+
+## 源码运行
+
+```powershell
+python -m pip install -e ".[rapidocr]"
+$env:PAPERBRIDGE_OCR_MODE = "rapidocr"
+python -m app.cli serve --host 127.0.0.1 --port 8765
+```
+
+其他平台可以使用源码安装；自动安装器目前仅提供 Windows x64。
+
+官方接口与能力来源：
+
+- https://github.com/RapidAI/RapidDoc/tree/v0.9.11
+- https://rapidai.github.io/RapidOCRDocs/main/install_usage/rapidocr/install/
+
+## 回归验证
+
+后端适配不改动字体、阅读通信、PDF 坐标匹配、翻译或 Excel 模块。
+测试覆盖模型能力开关、图注分类、公式/表格载荷、任意页码映射、缓存隔离、完整性失败、CPU 安装自检与旧 GPU 偏好。
+原生 Zotero 测试可通过 `python tests/zotero/run_smoke.py --ocr-mode rapidocr` 运行。
+
+0.4.1 通过 317 项自动测试与 153 项原生 Zotero 检查。在隔离文献库中暂停第二篇 OCR 时，
+第一篇译文仍能通过翻译接口生成并保存；同时验证段落对照、字号、公式复制、Excel 导出与退出清理。
+本次更新沿用 0.4.0 的完整识别模型与安装环境。
+
+0.4.0 已在 Windows 上的独立 CPython 3.13 环境完成真实安装与模型自检，并通过 310 项自动测试、151 项原生 Zotero 检查。
+本机 AMD Ryzen 9 9900X 仅用 CPU，完整解析一份 22 页论文约 124 秒（包含行内公式，输出 13 个行间公式及图文内容）。
+这是单个样例的实测，不是所有论文的速度承诺；GPU VL 版对某些论文仍可能更快。

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>论文翻译大师 设置</title>
+<link rel="stylesheet" href="popup.css">
+<style>
+  body { padding: 20px; }
+  .wrap { max-width: 480px; margin: 0 auto; }
+  h1 { font-size: 18px; }
+  .field { margin: 14px 0; }
+  .field label { display: block; font-weight: 600; margin-bottom: 6px; }
+  .field input[type="text"], .field input[type="password"] {
+    width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px;
+  }
+  .hint { color: #6b7280; font-size: 12px; margin: 4px 0 0; }
+  .actions { display: flex; gap: 8px; margin-top: 18px; }
+  .actions button {
+    padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer;
+  }
+  #save { background: #2563eb; color: #fff; }
+  #revoke { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+  #msg { margin-top: 12px; font-size: 13px; min-height: 18px; }
+  .ok { color: #065f46; }
+  .err { color: #991b1b; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>论文翻译大师 设置</h1>
+
+  <div class="field">
+    <label>本地服务地址</label>
+    <input id="service-url" type="text" placeholder="http://127.0.0.1:8765">
+    <p class="hint">默认 127.0.0.1:8765。仅支持本机回环地址。</p>
+  </div>
+
+  <div class="field">
+    <label>配对状态</label>
+    <p id="pair-state" class="hint">检查中…</p>
+  </div>
+
+  <div class="field">
+    <label><input id="auto-detect" type="checkbox"> 自动识别 PDF 标签页（可选权限，仅记录响应类型）</label>
+    <p class="hint">启用后申请 <code>webRequest</code> 权限，只读记录主文档响应中的 PDF 类型，不拦截请求。</p>
+  </div>
+
+  <div class="field">
+    <label>测试下载公式</label>
+    <p class="hint">如需解析需要登录的 PDF：请先访问该网站并保持登录，然后点击插件 → 解析当前 PDF。若失败，扩展会在该站点申请一次性权限后重试；仍失败则回退为"选择本地 PDF"。</p>
+  </div>
+
+  <div class="actions">
+    <button id="save">保存</button>
+    <button id="revoke">解除配对</button>
+    <button id="health">检查服务</button>
+  </div>
+  <p id="msg"></p>
+</div>
+<script src="options.js"></script>
+</body>
+</html>

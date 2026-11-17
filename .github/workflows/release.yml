@@ -6,35 +6,45 @@ on:
 permissions:
   contents: read
 jobs:
-  release:
+  windows-release:
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.13'
           cache: pip
-          cache-dependency-path: runtime/requirements.txt
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
-      - run: python -m pip install -r runtime/requirements.txt
-      - run: python install.py --check
-      - run: python -m unittest discover -s tests -v
-      - run: node tests/test_tasks.cjs
-      - run: node tests/test_attachment_groups.cjs
-      - name: Build and check release version
+      - run: python -m pip install -e ".[dev,layout]"
+      - run: npm ci --prefix tests/dom
+      - run: python -m pytest tests/unit tests/integration -q
+      - name: Build portable packages
         shell: pwsh
         run: |
           if ($env:GITHUB_REF_TYPE -eq 'tag') {
-            python tools/package.py --tag $env:GITHUB_REF_NAME
+            python packaging/build_release.py --tag $env:GITHUB_REF_NAME
           } else {
-            python tools/package.py
+            python packaging/build_release.py
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      - name: Build Windows unified bundle
+        shell: pwsh
+        run: |
+          $embed = Join-Path $env:RUNNER_TEMP 'python-3.13.17-embed-amd64.zip'
+          Invoke-WebRequest 'https://www.python.org/ftp/python/3.13.17/python-3.13.17-embed-amd64.zip' -OutFile $embed
+          if ((Get-FileHash -Algorithm SHA256 $embed).Hash.ToLower() -ne '9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38') { throw 'Python download checksum mismatch' }
+          $meta = Get-Content -Raw release.json | ConvertFrom-Json
+          $bundleDir = "dist/release/$($meta.slug)-windows-x64-$($meta.version)"
+          python scripts/build_cloud_bundle.py --output $bundleDir --embed $embed
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $bundle = Get-Item "$bundleDir.zip"
+          $sum = (Get-FileHash -Algorithm SHA256 $bundle.FullName).Hash.ToLower()
+          Add-Content -Encoding ascii dist/release/SHA256SUMS "$sum  $($bundle.Name)"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release
           path: dist/release/*
@@ -45,12 +55,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release view $env:GITHUB_REF_NAME *> $null
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host 'Release already exists; preserving published assets.'
+          $release = Get-Content -Raw release.json | ConvertFrom-Json
+          if ($release.localOnly) {
+            Write-Host "Local-only build. GitHub publication skipped."
             exit 0
           }
-          $release = Get-Content -Raw runtime/release.json | ConvertFrom-Json
-          $assets = Get-ChildItem dist/release -File | ForEach-Object FullName
-          gh release create $env:GITHUB_REF_NAME --verify-tag --title "论文翻译大师 $($release.version) · 本地解析" --notes-file CHANGELOG.md @assets
+          $assets = Get-ChildItem dist/release -File | Where-Object Name -ne 'RELEASE_NOTES.md' | ForEach-Object FullName
+          $options = @('--verify-tag', '--title', "$($release.name) $($release.version)", '--notes-file', 'dist/release/RELEASE_NOTES.md')
+          if ($release.prerelease) { $options += '--prerelease' }
+          gh release view $env:GITHUB_REF_NAME *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release already exists; preserving reviewed uploaded assets."
+            exit 0
+          }
+          gh release create $env:GITHUB_REF_NAME @options @assets
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
