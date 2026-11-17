@@ -50,7 +50,7 @@ async function startup({ id, rootURI } = {}) {
   PaperLoom.rootURI = rootURI;
   Services.scriptloader.loadSubScript(rootURI + "content/table-excel.js", globalThis, "UTF-8");
   PaperLoom.Excel = globalThis.PaperLoomExcel;
-  for (const name of ["runtime", "store", "service", "artifacts", "editing", "appearance", "tasks", "batch-picker",
+  for (const name of ["runtime", "store", "attachment-groups", "service", "artifacts", "editing", "appearance", "tasks", "batch-picker",
     "source-regions", "pdf-context", "pdf-regions", "pdf-highlight", "pdf-selection", "scroll-sync", "reverse-selection", "comparison", "reader-layout", "reader-presentation",
     "reader-panel", "reader-actions", "reader-session", "reader", "ui"]) {
     Services.scriptloader.loadSubScript(rootURI + `modules/${name}.js`, globalThis, "UTF-8");
@@ -62,6 +62,7 @@ async function startup({ id, rootURI } = {}) {
     .registerChrome(Services.io.newURI(rootURI + "manifest.json"), [["content", "paperloom", "content/"]]);
   PaperLoom.alive = true;
   await PaperLoom.Store.load();
+  await PaperLoom.AttachmentGroups.migrateExisting().catch(error => Zotero.logError(error));
   PaperLoom.UI.registerColumns();
   PaperLoom.ReaderUI.register();
   PaperLoom.Tasks.register();

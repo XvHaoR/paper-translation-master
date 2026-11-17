@@ -2,7 +2,7 @@
 
 ## 本地文字解析版（独立方案）
 
-新增独立维护的 [本地解析版 0.4.1](editions/native/README.md)：直接提取 PDF 文字层并分析单栏、多栏和混合版面，支持审稿行号过滤、跨页/跨栏段落重建、独立脚注、翻译、双向滚动与高亮。无需配置 PaddleOCR、GPU 或云端识别 Token。扫描页保留原图供核对，不识别图片中的文字。
+新增独立维护的 [本地解析版 0.4.2](editions/native/README.md)：直接提取 PDF 文字层并分析单栏、多栏和混合版面，支持审稿行号过滤、跨页/跨栏段落重建、独立脚注、翻译、双向滚动与高亮。无需配置 PaddleOCR、GPU 或云端识别 Token。扫描页保留原图供核对，不识别图片中的文字。
 
 本地解析版使用独立目录和 Python 环境，现有云端、GPU 和 CPU OCR 方案继续保留。各版共用 Zotero 插件 ID，安装时会相互替换，不能在同一 Zotero 配置中同时启用。[方案选择与安装](docs/NATIVE_EDITION.md) · [更新记录](editions/native/CHANGELOG.md)
 

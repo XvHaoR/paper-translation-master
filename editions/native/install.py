@@ -58,7 +58,7 @@ def main() -> None:
     temporary.write_text(json.dumps(descriptor, ensure_ascii=False, indent=2), encoding='utf-8')
     temporary.replace(target)
     print('Runtime registered. Keep this folder in place.')
-    print('Install dist/paper-translation-master-0.4.1.xpi in Zotero, then use Detect engine in settings.')
+    print('Install dist/paper-translation-master-0.4.2.xpi in Zotero, then use Detect engine in settings.')
 
 if __name__ == '__main__':
     main()
