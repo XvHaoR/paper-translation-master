@@ -1,108 +1,77 @@
-# 论文翻译大师
+# 论文翻译大师 0.7.0
 
-## 本地文字解析版（独立方案）
+Zotero 内的 PDF 解析、翻译与对照阅读插件。默认在本机读取 PDF 文字层并分析版面，不安装或调用 PaddleOCR，不使用 GPU，不需要识别服务密钥。
 
-新增独立维护的 [本地解析版 0.4.2](editions/native/README.md)：直接提取 PDF 文字层并分析单栏、多栏和混合版面，支持审稿行号过滤、跨页/跨栏段落重建、独立脚注、翻译、双向滚动与高亮。无需配置 PaddleOCR、GPU 或云端识别 Token。扫描页保留原图供核对，不识别图片中的文字。
+从 0.7.0 起，本地解析版成为仓库的主版本，源码、安装脚本和说明直接位于根目录，无需进入 `editions/native`。本版延续本地解析版 0.4.2 的功能，并将统一版本号接续到此前云端版 0.6.0 之后。变更见 [CHANGELOG.md](CHANGELOG.md)，旧版本升级见[迁移说明](docs/MIGRATION.md)。
 
-本地解析版使用独立目录和 Python 环境，现有云端、GPU 和 CPU OCR 方案继续保留。各版共用 Zotero 插件 ID，安装时会相互替换，不能在同一 Zotero 配置中同时启用。[方案选择与安装](docs/NATIVE_EDITION.md) · [更新记录](editions/native/CHANGELOG.md)
+当前仓库提供源码安装；GitHub Releases 中的旧云端/OCR 安装包属于历史版本。新版安装包只有在维护者正式发布后才会出现在 Releases 中。历史源码和发行文件继续保留在原 Git 标签中。
 
-以下为现有云端/OCR 版说明。
+## 功能与边界
 
-在 Zotero 中选择论文进行 OCR，使用 HTML 阅读、编辑识别结果，再按需使用大模型翻译。OCR 与译文分别保存为 Zotero 附件，下次打开无需重复识别或翻译。
+- 分析单栏、多栏和混合版面，按阅读顺序组织正文。
+- 在版面分析前识别并过滤审稿稿件页边的连续行号，结合坐标、序列和字号/颜色判断；保留正文数据与引用。原始 PDF 不作修改，难以确认的数字仍予保留。
+- 根据版面与续句证据接回跨页、跨栏及被图表隔开的段落；脚注独立显示，图表与对应注释归组。
+- 保留翻译、原文/解析/译文对照、双向联动滚动、双向选句高亮及 HTML/Markdown 导出。
+- 原 PDF、解析、译文和 Markdown 统一收在文献父条目下，可通过左侧箭头展开/收起；独立 PDF 会自动创建通用文档父条目。
+- 公式保留原 PDF 图像；表格保留原始外观，并在可提取时提供表格数据。
+- 扫描件、无可用文字层或异常文字区域保留原页/区域图像并标记待核对，**不识别其中的文字**。复杂版面仍可能需要核对。
+- 翻译需要另外配置兼容 OpenAI 接口的服务。只有主动翻译/测试连接时才请求该服务。
 
-**新增：0.6.0 云端版；本地 GPU／CPU 完整方案继续提供。云端版与本地 OCR 版的插件功能一致，主要区别是识别运行的位置与硬件要求。** 两版都保留批量处理、PDF 段落对照、内容编辑、逐段双语／仅译文、LaTeX 复制、Excel 表格导出和 HTML／Markdown 导出。
+本版删除 OCR 模型、云端识别、Token 设置、WSL/GPU 启动逻辑与旧安装器。保存格式及部分内部接口仍使用历史 `ocr` 名称，用于兼容已有解析附件；这些名称不代表存在识别引擎。
 
-“相同”指功能和操作流程。云端版与本地 PaddleOCR-VL 版均使用 PaddleOCR-VL-1.6 系列，但速度和识别结果还受服务配置、网络、排队、论文内容及本机硬件影响，不承诺完全相同。旧 RapidOCR CPU 方案使用另一套模型，不能视为相同识别效果。
+## Windows 安装
 
-## 下载与安装
+### 使用 Windows x64 完整包
 
-| 文件 | 用途 |
-| --- | --- |
-| [云端版 Windows x64 完整运行包](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.6.0/paper-translation-master-cloud-windows-x64-0.6.0.zip) | 首次安装推荐，含插件和轻量运行环境，无需手动安装 Python 或 OCR 模型 |
-| [云端版 Zotero 插件 XPI](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.6.0/paper-translation-master-cloud-0.6.0.xpi) | 已有同版云端环境时使用；单独安装 XPI 不包含运行环境 |
-| [发行文件与校验值](https://github.com/XvHaoR/paper-translation-master/releases/tag/v0.6.0) | 源码、运行代码、SHA-256 校验值 |
+以下步骤仅适用于另行提供的 Windows 完整包；本仓库及自动构建的源码包不包含 Python 二进制。直接克隆仓库或下载源码 ZIP 的用户请使用下面的源码安装方式。
 
-1. 下载完整 ZIP，**解压整个目录到准备长期保留的位置**，双击 `Install-Cloud.cmd` 注册运行环境。
-2. 在 Zotero「工具 → 插件／附加组件 → 齿轮 → 从文件安装」中选择包内 XPI，重启 Zotero。
-3. 在「工具 → 论文翻译大师 → 设置」中填写自己的飞桨 **Access Token**，点击「保存设置」。
-4. 选中文献执行 OCR，或在批量窗口勾选多篇论文。无需配置显卡、CUDA、WSL 或本机识别模型。
-5. 翻译时填写自己的大模型接口地址、模型名和翻译密钥。飞桨 OCR 密钥与翻译密钥分别配置。
+1. 将对应版本的 Windows x64 完整包解压到固定目录。
+2. 双击 `Install.cmd`，注册自带的 Python 与本地解析环境；无需下载 OCR 模型。
+3. 在 Zotero「工具 → 插件」中，从文件安装 `dist/paper-translation-master-0.7.0.xpi`。
+4. 打开插件设置，点击「检测已安装引擎」。打开 PDF 后使用「对照」和「解析 / 重试」。翻译设置按自己的服务填写。
 
-完整包内置轻量 Python 和阅读依赖，不包含 OCR 模型。移动目录后重新运行 `Install-Cloud.cmd`。更换版本前先关闭 Zotero；安装包尚未进行 Windows 代码签名。
+安装后保留整个目录。移动目录后重新运行 `Install.cmd`。工作区、论文缓存和翻译配置写入用户本机的 `PaperTranslationMasterNative` 数据目录，不写入发行源码。
 
-## 本地 OCR 完整部署方案（继续提供）
+### 使用源码包
 
-| 方案 | Zotero 插件 | 一键引擎安装器 | 配置 |
-| --- | --- | --- | --- |
-| 本地 PaddleOCR-VL GPU | [本地版 0.5.0 XPI](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-0.5.0.xpi) | [GPU 安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-setup-0.5.0.exe) | NVIDIA 显存至少 8 GB、推荐 12 GB；CC 7.x–9.x，驱动至少 560.76；磁盘至少 15 GB、建议 25 GB |
-| 本地 RapidOCR CPU | 同上，使用本地版 0.5.0 XPI | [CPU 安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-rapidocr-setup-0.5.0.exe) | 无需独显、CUDA、WSL；建议至少 8 GB 内存、5 GB 磁盘；模型在本机运行 |
+先安装 Python 3.12 或更新版本（当前 Windows 验证使用 3.13），进入本目录后运行 `Install.cmd`（或 `python install.py`）。脚本创建本目录的 `.venv`，按 `runtime/requirements.txt` 安装固定版本依赖，构建 XPI，然后注册环境。首次安装需要网络；NumPy 固定版本要求 Python 3.12 或更新版本。
 
-本地安装器支持 Windows 10 2004+／11 x64，自动准备独立 Python、依赖和完整模型。安装本地 XPI，关闭 Zotero 运行所选安装器；完成后在插件设置中「检测已安装引擎」并保存。模型下载齐备后可在本机识别，无需飞桨 OCR Token。
+从仓库根目录使用命令行：
 
-需要源码、已有 WSL FastDeploy 环境或自行构建安装器时，见[完整本地部署与升级说明](docs/INSTALLATION.md)和[RapidOCR 方案](docs/RAPIDOCR_EDITION.md)。GPU、CPU 安装与构建脚本继续保留，云端版不替代或删除本地方案。
-
-## 在哪里注册云端 OCR API
-
-1. 打开[百度飞桨 AI Studio](https://aistudio.baidu.com/)，注册或登录账号。
-2. 进入 [AI Studio Access Token 页面](https://aistudio.baidu.com/account/accessToken)，按页面指引获取访问令牌。
-3. 在 [PaddleOCR 服务页面](https://aistudio.baidu.com/paddleocr)查看服务与账户额度；如要求开通服务，按官方流程完成。
-4. 将 Access Token 填入插件设置的「飞桨云端 OCR」，保存即可。不要把密钥发到公开 Issue、截图或仓库中。
-
-插件接入[飞桨官方文档解析 API](https://www.paddleocr.ai/latest/en/version3.x/inference_deployment/serving/paddleocr_official_api/overview.html)，使用 PaddleOCR-VL-1.6。服务可用性、额度和计费以官方控制台为准，本项目不提供共享密钥，也不承诺无限免费识别。
-
-## 云端版与本地版的配置区别
-
-| 项目 | 云端 OCR 版（当前推荐） | 本地 PaddleOCR-VL 版 |
-| --- | --- | --- |
-| 插件功能 | 与本地版一致 | 与云端版一致 |
-| OCR 运行位置 | 飞桨服务器 | 自己的电脑 |
-| 适合设备 | 普通办公电脑、无独显笔记本、低性能电脑 | 有兼容 NVIDIA 显卡、希望本地识别的电脑 |
-| 系统／Zotero | Windows 10/11 **64 位**；面向 Zotero 7–10，原生实测为 10.0.8 | Windows 10 2004+／11 **64 位**；面向 Zotero 7–10 |
-| 显卡 | 无需独立显卡、CUDA 或 WSL | NVIDIA GPU，**显存至少 8 GB，推荐 12 GB**；计算能力 CC 7.x–9.x，驱动至少 560.76；不代表支持所有 NVIDIA 型号 |
-| 内存与磁盘 | 建议至少 4 GB 内存，预留 1 GB 磁盘用于程序；论文和结果另计 | 建议 16 GB 系统内存；磁盘**至少 15 GB，建议 25 GB**用于运行库和模型；论文和结果另计 |
-| 网络 | 每次新 OCR 需要联网 | 模型下载完成后可在本机 OCR |
-| 部署 | 不下载大模型，无需维护本机推理环境 | 需要配置模型及兼容的推理运行库 |
-| 数据流向 | 所选 PDF 上传至飞桨 | OCR 在本机完成 |
-
-**云端版的优势**是降低硬件和安装门槛，不占用本机显卡加载 OCR 模型，更适合不方便部署本地模型的用户。识别结果下载保存后，仍可离线阅读，再次打开不会重新调用接口。
-
-云端单次本地文件上传不超过 **50 MB**。自动 OCR 需在云端模式单独开启，开启后新 PDF 会自动上传给飞桨；原来的本地自动 OCR 设置不会直接触发上传。取消本机等待不等同于撤销已提交的官方任务或返还额度。
-
-目前完整发布包主要面向 Windows x64。macOS／Linux 没有完整运行包，未做完整平台验收。已保存结果的阅读与 OCR 部署是不同支持范围。
-
-## 阅读与编辑功能
-
-- HTML 阅读区区分正文、摘要、图注、表注和脚注，图表与说明组合展示，支持完整大图。
-- 在 PDF 原文、对照和仅 OCR 之间切换，支持段落与 PDF 双向定位、交换左右位置。
-- 编辑识别文本、手动修改类别、删除多余图片、补充标题；连续摘要、图注和表注可合并展示，每段保留定位。
-- 只修改 OCR 类别时同步调整已有译文排版；修改正文后提示按需重新翻译，保留旧结果。
-- 批量 OCR 与翻译使用独立任务队列，完成后不会自动打开大量标签页。
-- 已保存 OCR 与译文可分别管理、清除和重新处理；支持字体、字号和颜色设置。
-- 公式可复制 LaTeX，表格可导出 Excel，全文可导出 HTML 和 Markdown。
-
-## 从本地版切换
-
-关闭 Zotero，按上述步骤安装云端完整包和 XPI。两版使用相同插件 ID，因此云端版会替换原插件；已有 Zotero 文献、OCR 和译文附件保留。不要同时启用两个同源插件副本。
-
-首次切换需手动安装完整包，不会通过旧更新通道强制将本地用户切到云端。旧翻译配置若保存在原引擎目录，请在云端版设置中重新填写。只更新 XPI 不足以完成升级。
-
-本地 GPU 和 CPU 的完整安装包与部署方案均继续保留，仍使用本地版 0.5.0 插件。已有本地环境无需迁移到云端。云端包使用另一套运行环境，按需选择即可，详见[完整安装与部署说明](docs/INSTALLATION.md)。
-
-## 开发与验证
-
-核心服务需要 Python 3.11+，JavaScript 回归需要 Node.js。核心开发依赖不包含本机 OCR 模型。
-
-```bash
-python -m pip install -e ".[dev]"
-npm ci --prefix tests/dom
-python -m pytest tests/unit tests/integration -q
-python packaging/build_release.py
+```powershell
+python install.py
 ```
 
-Windows 完整包使用 CPython 3.13 x64 嵌入式环境，由 `scripts/build_cloud_bundle.py` 构建。测试使用隔离文献库；实际耗时及识别质量随论文和服务变化。
+完成后在 Zotero 中从文件安装根目录下的 `dist/paper-translation-master-0.7.0.xpi`。从旧云端/OCR 版升级时，请在干净的新目录安装，避免复用旧版的 Python 依赖。
 
-## 许可证与数据
+XPI 是 Zotero 界面部分，单独安装 XPI 不能替代 Python 解析环境。现有附件和译文仍保存在 Zotero 中。新运行环境独立注册，翻译服务配置需要重新填写。
 
-原创代码采用 [AGPL-3.0-or-later](LICENSE)，第三方组件保留各自许可证，见[第三方声明](THIRD_PARTY_NOTICES.md)。
+macOS/Linux 可运行 `python3 install.py` 安装环境；随后在插件高级运行设置中指定本目录的 `runtime` 和 `.venv/bin/python`。这些平台未在本次 Windows 发布验证中测试。
 
-云端 OCR 将所选 PDF 发送至飞桨；远程翻译将待翻译文本发送至你配置的服务商。OCR 密钥只保存在本机 Zotero 配置目录，程序包和仓库不包含用户密钥；论文和译文由你的 Zotero 文献库管理。
+## 开发与构建
+
+- **上传源码仓库：** 使用源码包中的文件；`.gitignore` 排除运行环境、缓存、文档和本机配置。
+- **供 Windows 用户下载：** 将完整包作为 Release 附件上传。
+- `python tools/build.py` 重新构建 XPI，输出到 `dist/`。
+- `python tools/package.py` 生成经过路径/敏感文件检查的源码 ZIP、XPI 和 SHA-256 校验值，输出到 `dist/release/`；不打包本机 Python、缓存或文献。
+- CI 在 Windows 和 Linux 上运行测试和源码包构建；正式发布流程见[发布说明](docs/RELEASING.md)。
+- 在本目录的虚拟环境中运行 `python -m unittest discover -s tests -v`，执行本地解析和接口测试。
+- `node tests/test_tasks.cjs` 检查解析升级后的译文缓存与人工编辑保护。
+- `node tests/test_attachment_groups.cjs` 检查父子层级、旧结果整理、事务失败和权限边界。
+- `python install.py --check` 仅检查环境，不注册或覆盖本机配置。
+
+源码包不包含用户论文、译文、密钥、账户信息、测试截图、绝对本机路径或旧安装包。完整包另外包含干净的 Windows Python、依赖和版面分析资源，保留其许可证与元数据。
+
+## 已知情况
+
+顶部「原文 / 对照 / 解析」在部分 Zotero 场景中首次点击可能不切换，当前可再次点击。此项实机排查已暂缓，本版保持此前按钮实现。
+
+本版没有独立「重新解析」按钮；普通「解析 / 重试」会升级旧版自动解析结果，人工编辑的结果继续保留。
+
+更新后，对曾混入行号的论文再次点击「翻译」，会先升级自动解析，再生成新译文；仅打开已保存译文不会重写其内容。人工编辑的解析结果不会被自动替换。
+
+启动时会整理本插件此前保存的顶层结果，只处理能通过标签确定原 PDF 的附件。已有父条目的结果保持原位置；独立 PDF 的新父条目仅填写标题，其他文献信息可按需补充。只读库或来源缺失的结果会跳过。整理前的关系记录保存在 Zotero 配置目录的 `paperloom/attachment-groups-*.json`，用户论文、批注和附件文件不作改写。
+
+本项目基于原项目修改，保留上游版权与 AGPL-3.0-or-later 许可证。第三方内容见 `THIRD_PARTY_NOTICES.md`。
+
+本发行版采用手动更新。Zotero 要求 manifest 包含 update_url，因此保留本机回环地址占位；它不指向外部更新服务。发布者建立自己的更新源后可替换此字段。
