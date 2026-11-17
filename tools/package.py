@@ -1,6 +1,7 @@
 """Build the standalone native source bundle without local runtime/user data."""
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -8,13 +9,14 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = {'.gitignore', 'Install.cmd', 'install.py', 'README.md', 'CHANGELOG.md',
               'LICENSE', 'THIRD_PARTY_NOTICES.md'}
 RUNTIME_FILES = {'runtime/requirements.txt', 'runtime/pyproject.toml', 'runtime/release.json'}
-ALLOWED_DIRS = {'addon', 'licenses', 'tests', 'tools'}
+ALLOWED_DIRS = {'addon', 'docs', 'licenses', 'tests', 'tools'}
 EXCLUDED = {'__pycache__', '.git', '.venv', 'vendor', 'python', 'node_modules',
             'workspace', 'documents', 'dist', 'log', '.pytest_cache'}
 PRIVATE = [
@@ -62,12 +64,23 @@ def entry(bundle, name, data):
     bundle.writestr(info, data)
 
 
+def release_version(root: Path, tag: str | None = None) -> str:
+    version = json.loads((root / 'runtime/release.json').read_text('utf-8'))['version']
+    manifest_version = json.loads((root / 'addon/manifest.json').read_text('utf-8'))['version']
+    project_version = tomllib.loads((root / 'runtime/pyproject.toml').read_text('utf-8'))['project']['version']
+    if len({version, manifest_version, project_version}) != 1:
+        raise ValueError('Runtime, add-on and Python package versions differ')
+    if tag is not None and tag != f'v{version}':
+        raise ValueError(f'Release tag must be v{version}, received {tag}')
+    return version
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--tag', help='Require this Git tag to match all release versions')
+    args = parser.parse_args()
+    version = release_version(ROOT, args.tag)
     subprocess.run([sys.executable, str(ROOT / 'tools/build.py')], check=True)
-    version = json.loads((ROOT / 'runtime/release.json').read_text('utf-8'))['version']
-    manifest_version = json.loads((ROOT / 'addon/manifest.json').read_text('utf-8'))['version']
-    if version != manifest_version:
-        raise ValueError('Runtime and add-on versions differ')
     output = ROOT / 'dist/release'
     output.mkdir(parents=True, exist_ok=True)
     xpi = output / f'paper-translation-master-{version}.xpi'
@@ -75,8 +88,8 @@ def main():
     with zipfile.ZipFile(xpi) as bundle:
         for name in bundle.namelist():
             audit(name, bundle.read(name))
-    source = output / f'paper-translation-master-native-{version}-source.zip'
-    prefix = f'paper-translation-master-native-{version}/'
+    source = output / f'paper-translation-master-{version}-source.zip'
+    prefix = f'paper-translation-master-{version}/'
     with zipfile.ZipFile(source, 'w', zipfile.ZIP_DEFLATED) as bundle:
         for path in source_files(ROOT):
             entry(bundle, prefix + path.relative_to(ROOT).as_posix(), path.read_bytes())
@@ -87,7 +100,7 @@ def main():
                 raise ValueError(f'Archive integrity check failed: {file.name}')
     (output / 'SHA256SUMS.txt').write_text(''.join(
         f'{hashlib.sha256(file.read_bytes()).hexdigest()}  {file.name}\n' for file in (xpi, source)), 'ascii')
-    print(f'Native release artifacts: {output}')
+    print(f'Release artifacts: {output}')
 
 
 if __name__ == '__main__':

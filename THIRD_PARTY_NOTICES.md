@@ -31,7 +31,7 @@ MathJax 的相关版权归 The MathJax Consortium 与各文件贡献者所有。
 
 同目录 [NOTICE](runtime/app/static/mathjax/NOTICE) 汇总上述声明。Apache-2.0 完整文本亦见 [licenses/Apache-2.0.txt](licenses/Apache-2.0.txt)。复制这些资源到离线解析/译文阅读附件时，应同时保留该目录的 LICENSE 和 NOTICE。
 
-## 0.4.2 本地解析依赖
+## 0.7.0 本地解析依赖
 
 本版本移除了 PaddleOCR、PaddlePaddle、PaddleX、云端识别客户端和旧 GPU/WSL 安装器。它使用 PyMuPDF、PyMuPDF Layout、PyMuPDF4LLM 2.1 分析 PDF 文字层与版面；版面分析所需的 ONNX 资源与运行库仍属于必要依赖。
 

@@ -19,3 +19,8 @@ dist/
 service-state-*.json
 service-lease-*.json
 .pytest_cache/
+.coverage
+*.egg-info/
+node_modules/
+.idea/
+.vscode/

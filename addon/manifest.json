@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "论文翻译大师 · 本地解析版",
-  "version": "0.4.2",
+  "version": "0.7.0",
   "description": "本地提取 PDF 文字、分析版面和重建段落；翻译、双向联动与高亮。",
   "applications": {
     "zotero": {

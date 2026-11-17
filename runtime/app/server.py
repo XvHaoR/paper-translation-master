@@ -400,7 +400,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     translator_cache = TranslateCache(settings.workspace / "translate-cache.json")
 
-    app = FastAPI(title="论文翻译大师", version="0.4.2")
+    app = FastAPI(title="论文翻译大师", version="0.7.0")
     from app.services.browser_sessions import BrowserSessions
 
     sessions = BrowserSessions()

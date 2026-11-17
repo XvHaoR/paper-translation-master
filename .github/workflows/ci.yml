@@ -1,0 +1,36 @@
+name: Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: runtime/requirements.txt
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+      - run: python -m pip install -r runtime/requirements.txt
+      - run: python install.py --check
+      - run: python -m unittest discover -s tests -v
+      - run: node tests/test_tasks.cjs
+      - run: node tests/test_attachment_groups.cjs
+      - run: python tools/package.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: portable-${{ matrix.os }}
+          path: dist/release/*
+          if-no-files-found: error

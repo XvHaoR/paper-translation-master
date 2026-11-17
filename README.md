@@ -1,8 +1,10 @@
-# 论文翻译大师 · 本地解析版 0.4.2
+# 论文翻译大师 0.7.0
 
 Zotero 内的 PDF 解析、翻译与对照阅读插件。默认在本机读取 PDF 文字层并分析版面，不安装或调用 PaddleOCR，不使用 GPU，不需要识别服务密钥。
 
-本目录是仓库内独立维护的本地解析方案，版本号与根目录的云端/OCR 版分别管理。方案对比见 [NATIVE_EDITION.md](../../docs/NATIVE_EDITION.md)，变更见 [CHANGELOG.md](CHANGELOG.md)。各版使用同一 Zotero 插件 ID，安装本版会替换当前启用的同源插件；已有文献和保存附件继续保留。
+从 0.7.0 起，本地解析版成为仓库的主版本，源码、安装脚本和说明直接位于根目录，无需进入 `editions/native`。本版延续本地解析版 0.4.2 的功能，并将统一版本号接续到此前云端版 0.6.0 之后。变更见 [CHANGELOG.md](CHANGELOG.md)，旧版本升级见[迁移说明](docs/MIGRATION.md)。
+
+当前仓库提供源码安装；GitHub Releases 中的旧云端/OCR 安装包属于历史版本。新版安装包只有在维护者正式发布后才会出现在 Releases 中。历史源码和发行文件继续保留在原 Git 标签中。
 
 ## 功能与边界
 
@@ -21,11 +23,11 @@ Zotero 内的 PDF 解析、翻译与对照阅读插件。默认在本机读取 P
 
 ### 使用 Windows x64 完整包
 
-以下步骤适用于维护者另行发布的 Windows 完整包；本次源码提交不包含 Python 二进制或预构建 ZIP。直接克隆仓库的用户请使用下面的源码安装方式。
+以下步骤仅适用于另行提供的 Windows 完整包；本仓库及自动构建的源码包不包含 Python 二进制。直接克隆仓库或下载源码 ZIP 的用户请使用下面的源码安装方式。
 
-1. 将 `paper-translation-master-0.4.2-windows-x64.zip` 完整解压到固定目录。
+1. 将对应版本的 Windows x64 完整包解压到固定目录。
 2. 双击 `Install.cmd`，注册自带的 Python 与本地解析环境；无需下载 OCR 模型。
-3. 在 Zotero「工具 → 插件」中，从文件安装 `dist/paper-translation-master-0.4.2.xpi`。
+3. 在 Zotero「工具 → 插件」中，从文件安装 `dist/paper-translation-master-0.7.0.xpi`。
 4. 打开插件设置，点击「检测已安装引擎」。打开 PDF 后使用「对照」和「解析 / 重试」。翻译设置按自己的服务填写。
 
 安装后保留整个目录。移动目录后重新运行 `Install.cmd`。工作区、论文缓存和翻译配置写入用户本机的 `PaperTranslationMasterNative` 数据目录，不写入发行源码。
@@ -37,22 +39,22 @@ Zotero 内的 PDF 解析、翻译与对照阅读插件。默认在本机读取 P
 从仓库根目录使用命令行：
 
 ```powershell
-cd editions/native
 python install.py
 ```
 
-完成后在 Zotero 中从文件安装本目录下的 `dist/paper-translation-master-0.4.2.xpi`。本版和根目录使用不同版本的 PyMuPDF，应分别创建虚拟环境。
+完成后在 Zotero 中从文件安装根目录下的 `dist/paper-translation-master-0.7.0.xpi`。从旧云端/OCR 版升级时，请在干净的新目录安装，避免复用旧版的 Python 依赖。
 
 XPI 是 Zotero 界面部分，单独安装 XPI 不能替代 Python 解析环境。现有附件和译文仍保存在 Zotero 中。新运行环境独立注册，翻译服务配置需要重新填写。
 
 macOS/Linux 可运行 `python3 install.py` 安装环境；随后在插件高级运行设置中指定本目录的 `runtime` 和 `.venv/bin/python`。这些平台未在本次 Windows 发布验证中测试。
 
-## 上传与构建
+## 开发与构建
 
 - **上传源码仓库：** 使用源码包中的文件；`.gitignore` 排除运行环境、缓存、文档和本机配置。
 - **供 Windows 用户下载：** 将完整包作为 Release 附件上传。
 - `python tools/build.py` 重新构建 XPI，输出到 `dist/`。
 - `python tools/package.py` 生成经过路径/敏感文件检查的源码 ZIP、XPI 和 SHA-256 校验值，输出到 `dist/release/`；不打包本机 Python、缓存或文献。
+- CI 在 Windows 和 Linux 上运行测试和源码包构建；正式发布流程见[发布说明](docs/RELEASING.md)。
 - 在本目录的虚拟环境中运行 `python -m unittest discover -s tests -v`，执行本地解析和接口测试。
 - `node tests/test_tasks.cjs` 检查解析升级后的译文缓存与人工编辑保护。
 - `node tests/test_attachment_groups.cjs` 检查父子层级、旧结果整理、事务失败和权限边界。
@@ -68,7 +70,7 @@ macOS/Linux 可运行 `python3 install.py` 安装环境；随后在插件高级�
 
 更新后，对曾混入行号的论文再次点击「翻译」，会先升级自动解析，再生成新译文；仅打开已保存译文不会重写其内容。人工编辑的解析结果不会被自动替换。
 
-0.4.2 启动时会整理本插件此前保存的顶层结果，只处理能通过标签确定原 PDF 的附件。已有父条目的结果保持原位置；独立 PDF 的新父条目仅填写标题，其他文献信息可按需补充。只读库或来源缺失的结果会跳过。整理前的关系记录保存在 Zotero 配置目录的 `paperloom/attachment-groups-*.json`，用户论文、批注和附件文件不作改写。
+启动时会整理本插件此前保存的顶层结果，只处理能通过标签确定原 PDF 的附件。已有父条目的结果保持原位置；独立 PDF 的新父条目仅填写标题，其他文献信息可按需补充。只读库或来源缺失的结果会跳过。整理前的关系记录保存在 Zotero 配置目录的 `paperloom/attachment-groups-*.json`，用户论文、批注和附件文件不作改写。
 
 本项目基于原项目修改，保留上游版权与 AGPL-3.0-or-later 许可证。第三方内容见 `THIRD_PARTY_NOTICES.md`。
 
