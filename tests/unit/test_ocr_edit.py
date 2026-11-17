@@ -181,7 +181,7 @@ def test_edited_source_translates_after_server_source_cache_was_removed(paper, t
         "insertions": [{"id": "manual-"+"a"*24, "before": "p", "markdown": "## Main"}]})
     original = translator.translate_batch
     seen = []
-    def fake_http(*args):
+    def fake_http(*args, **_kwargs):
         prompt = args[3][0]["content"]
         seen.append(prompt)
         inputs = translator.parse_batch_output(prompt.split("\n请把每条")[0], 10000)

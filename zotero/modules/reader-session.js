@@ -16,9 +16,11 @@
         if (!PL.alive || state.frame !== frame || state.uri !== uri) throw new Error("阅读窗口已更新，请重试");
         return PL.ReaderUI.action(state, data);
       };
-      frame._paperloomOptions = () => ({ view: PL.ReaderUI.viewOptions(), css: PL.readerStyle });
+      frame._paperloomOptions = () => ({ view: PL.ReaderUI.viewOptions(state), css: PL.readerStyle });
     },
     unbind(state) {
+      PL.ReverseSelection.clear(state);
+      PL.ScrollSync.unbind(state);
       if (state.frame) { delete state.frame._paperloomAction; delete state.frame._paperloomOptions; }
       state.bridgeID = null; state.bridgeGlobal = null; state.bridgePending = null;
       state.bridgeStatus = "closed"; state.bridgeError = "";

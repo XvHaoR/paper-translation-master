@@ -58,6 +58,7 @@
 
   PL.SourceRegions = {
     viewport: viewportFor,
+    textPage,
     async resolve(state, data) {
       const base={page:Number(data.page),bbox:data.bbox};
       if (!valid(base.bbox) || !state.frame) return [base];
@@ -69,7 +70,7 @@
       if (!source.text) source={...data,...await PL.ReaderUI.readerActor(frame.browsingContext.currentWindowGlobal).sendQuery("block-source",{id:data.block})};
       const wanted=normalize(source.text);
       let regions=[base];
-      // Endpoint matching is anchored inside the known OCR rectangle. Require
+      // Endpoint matching is anchored inside the known 解析 rectangle. Require
       // substantial agreement before recovering a missing column/page region.
       if (wanted.length>=100 && source.type!=="figure" && source.type!=="table") {
         try {
@@ -110,7 +111,7 @@
             }
           }
         }
-        catch (error) { Zotero.logError(error); /* Scans/no native text keep their known OCR rectangle. */ }
+        catch (error) { Zotero.logError(error); /* Scans/no native text keep their known 解析 rectangle. */ }
       }
       if (state.frame===frame) cache.set(data.block,{...source,block:data.block,regions});
       return regions;

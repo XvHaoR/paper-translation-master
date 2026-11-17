@@ -244,6 +244,8 @@ def prepare_blocks(blocks: list[Block], data: dict, doc_dir: Path, raw: dict | N
         if (doc_dir / "original.pdf").is_file():
             import fitz
             document = fitz.open(doc_dir / "original.pdf")
+        from app.services.ocr_output_guard import guard_ocr_blocks
+        blocks = guard_ocr_blocks(blocks, document, doc_dir)
         from app.services.inline_semantics import recover_inline_prose
         blocks = recover_inline_prose(blocks,document)
         from app.services.prose_quality import repair_pdf_citations

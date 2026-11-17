@@ -33,6 +33,8 @@ MathJax 的相关版权归 The MathJax Consortium 与各文件贡献者所有。
 
 ## 安装时下载的 OCR、PDF 与模型组件
 
+融合版完整包携带 PyMuPDF 2.1 的 PDF 文字层和版面分析组件及其 ONNX Runtime、NumPy 等依赖。Python wheel 的许可证和第三方声明随原有 distribution 元数据保留。GPU PaddleOCR 与 RapidOCR 的模型和依赖由对应的本地引擎提供。
+
 安装器从官方 Python 网站、PyPI、PaddlePaddle 官方软件包索引和模型源下载运行环境。发行源码及小型安装控制程序不附带 OCR 模型权重，也不附带整套已安装的 Python packages。下载后，各个 distribution 自带的许可证、版权和第三方声明必须保留。下表列出主要组件；准确版本以发行时的安装器与 `packaging/installer/requirements-runtime.txt` 为准。
 
 | 组件 | 当前安装版本/用途 | 原始许可与官方来源 |

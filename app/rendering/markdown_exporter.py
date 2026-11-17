@@ -85,7 +85,13 @@ def html_table_to_markdown(html: str) -> str | None:
 
 def _render_block(b: Block) -> str | None:
     c = b.content
+    if b.source.raw_ref == "native-layout" and c.text:
+        import html as html_escape
+        c = c.model_copy(deep=True)
+        c.text = html_escape.escape(c.text, quote=False)
     t = b.type
+    if c.image_path and t in (BlockType.EQUATION_BLOCK, BlockType.EQUATION_INLINE, BlockType.TABLE) and not c.html and not c.latex:
+        return f"![原 PDF 内容]({c.image_path})"
     if t is BlockType.DOCUMENT_TITLE:
         return f"# {(c.text or '').strip()}"
     if t is BlockType.HEADING:
@@ -134,12 +140,19 @@ def _render_block(b: Block) -> str | None:
 
 
 def render_markdown(blocks: list[Block]) -> str:
-    """按 (page, order) 顺序渲染全部块为 Markdown 文本。"""
+    """Render logical prose flow, retaining physical page markers."""
+    from app.models.ir import ordered_blocks
     out: list[str] = []
     prev_page: int | None = None
-    for b in sorted(blocks, key=lambda x: (x.page, x.order)):
+    ordered = ordered_blocks(blocks)
+    ordered = [b for b in ordered if b.type is not BlockType.FOOTNOTE] + [b for b in ordered if b.type is BlockType.FOOTNOTE]
+    notes_started = False
+    for b in ordered:
         if b.type in SKIP_TYPES:
             continue
+        if b.type is BlockType.FOOTNOTE and not notes_started and len(blocks) > 1:
+            out.append('## 脚注')
+            notes_started = True
         if prev_page is not None and b.page != prev_page:
             out.append(f"\n<!-- p.{b.page} -->\n")
         prev_page = b.page

@@ -4,7 +4,14 @@ window.addEventListener("DOMContentLoaded", async () => {
   window.document.title = `${PL.name} ${PL.version || ""} 设置`;
   const $ = id => window.document.getElementById(id);
   const status = text => { $("status").textContent = text; };
-  const local = () => ({
+  const unified = PL.config.unified;
+  const local = () => unified ? ({
+    recognitionMode:$("recognitionMode").value,
+    [PL.Recognition.autoPref($("recognitionMode").value)]:$("autoOCR").checked,
+    language:$("language").value.trim(), unifiedLocalEngine:$("localEngine").value,
+    unifiedLocalRoot:$("projectRoot").value.trim(), unifiedLocalPython:$("pythonPath").value.trim(),
+    unifiedLocalBackend:$("backend").value, unifiedLocalURL:$("serviceURL").value.trim(),
+  }) : ({
     ...($("backend").value === "cloud" ? {cloudAutoOCR:$("autoOCR").checked} : {autoOCR:$("autoOCR").checked}), language: $("language").value.trim(), backend: $("backend").value,
     projectRoot: $("projectRoot").value.trim(), pythonPath: $("pythonPath").value.trim(), serviceURL: $("serviceURL").value.trim(),
   });
@@ -19,6 +26,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     $(id).value = PL.pref(id, fallback);
   }
   const detectEngine = async () => {
+    if (unified) {
+      const runtime = await PL.Runtime.localOCR($("localEngine").value);
+      const engine = runtime.backend === "wsl" ? "WSL FastDeploy" : runtime.ocrMode === "rapidocr" ? "RapidOCR CPU" : "PaddleOCR GPU";
+      $("engineStatus").textContent = `已发现 ${engine} 环境。默认识别方案选「本地 OCR」后，保存设置并从 Zotero 工具栏启动。`;
+      return;
+    }
     const runtime = await PL.Runtime.resolve();
     if (!runtime) { $("engineStatus").textContent = "尚未发现本地引擎。运行安装器后，再点击检测即可。"; return; }
     $("projectRoot").value = runtime.projectRoot;
@@ -28,13 +41,39 @@ window.addEventListener("DOMContentLoaded", async () => {
   };
   action("downloadEngine", () => PL.Runtime.download());
   action("detectEngine", detectEngine);
-  try { await detectEngine(); } catch (error) { $("engineStatus").textContent=error.message; }
+  if (!unified) try { await detectEngine(); } catch (error) { $("engineStatus").textContent=error.message; }
   const updateAuto = () => {
+    if (unified) {
+      const mode = $("recognitionMode").value;
+      $("autoOCRLabel").textContent = mode === "cloud" ? "新文献添加后自动上传 PDF 至飞桨进行 OCR"
+        : `新文献添加后自动处理（${PL.Recognition.label(mode)}）`;
+      $("autoOCR").checked = PL.pref(PL.Recognition.autoPref(mode), false);
+      return;
+    }
     const cloud = $("backend").value === "cloud";
     $("autoOCRLabel").textContent = cloud ? "新文献添加后自动上传 PDF 至飞桨进行 OCR" : "新文献添加后自动 OCR";
     $("autoOCR").checked = PL.pref(cloud ? "cloudAutoOCR" : "autoOCR", false);
   };
   $("backend").addEventListener("change", updateAuto);
+  $("recognitionRow").style.display = unified ? "" : "none";
+  $("localEngineRow").style.display = unified ? "" : "none";
+  if (unified) {
+    $("recognitionMode").value = PL.Recognition.defaultMode();
+    $("localEngine").value = PL.pref("unifiedLocalEngine", "auto");
+    $("projectRoot").value = PL.pref("unifiedLocalRoot", "");
+    $("pythonPath").value = PL.pref("unifiedLocalPython", "");
+    $("serviceURL").value = PL.pref("unifiedLocalURL", "http://127.0.0.1:8765");
+    $("backend").value = PL.pref("unifiedLocalBackend", "local");
+    for (const option of $("backend").options) if (option.value === "cloud") option.hidden = true;
+    $("localEngineHint").textContent = "直接解析和云端 OCR 使用融合版运行环境。本地 OCR 可连接已有 GPU／CPU 安装，也可指定自定义环境。";
+    const toggleCustom = () => {
+      for (const id of ["localBackendRow","localRootRow","localPythonRow"]) $(id).style.display = $("localEngine").value === "custom" ? "" : "none";
+    };
+    toggleCustom();
+    $("localEngine").addEventListener("change", toggleCustom);
+    $("recognitionMode").addEventListener("change", updateAuto);
+    detectEngine().catch(error => { $("engineStatus").textContent = error.message; });
+  }
   if (PL.config.cloudPreview) {
     $("backend").value = "cloud"; $("backend").disabled = true;
     $("localEngineHint").textContent = "此版本使用内置轻量运行环境。解压测试包并运行 Install-Cloud.cmd 后，填写下方飞桨密钥即可。";
@@ -83,19 +122,26 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
   action("saveLocal", async () => { await PL.UI.applyLocal(local()); await saveCloud(); status("已保存。自动 OCR 只作用于之后新添加的文献。"); });
   action("close", () => window.close());
-  const apply = async () => { await PL.UI.applyLocal(local()); await saveCloud(); status("正在启动服务…"); await PL.Service.ensure(); };
+  const apply = async () => {
+    if (!unified) { await PL.UI.applyLocal(local()); await saveCloud(); }
+    status("正在启动服务…");
+    await PL.Service.ensure();
+  };
   const read = config => {
     $("llm_base_url").value = config.llm_base_url || "";
     $("llm_model").value = config.llm_model || "";
+    $("llm_temperature").value = config.llm_temperature ?? "";
     $("llm_api_key").placeholder = config.llm_api_key ? "已保存密钥；留空保持不变" : "无密钥本地模型可留空";
   };
   action("loadModel", async () => { await apply(); read(await PL.request("GET", "/api/settings")); status("已读取翻译配置。"); });
   const modelConfig = () => ({ llm_base_url: $("llm_base_url").value.trim(), llm_model: $("llm_model").value.trim(),
+    llm_temperature: $("llm_temperature").value.trim(),
     lang_to: $("language").value.trim(), ...($("llm_api_key").value || $("clearKey").checked ? { llm_api_key: $("llm_api_key").value.trim() } : {}) });
   action("saveModel", async () => {
     await apply();
     read(await PL.request("PUT", "/api/settings", modelConfig()));
     $("llm_api_key").value = "";
+    $("clearKey").checked = false;
     status("翻译配置已保存。不会自动翻译任何文献。");
   });
   action("testModel", async () => {
@@ -103,7 +149,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     await PL.request("POST", "/api/settings/test", modelConfig());
     status("翻译服务连接成功。");
   });
-  if (await PL.Service.online()) {
-    try { read(await PL.request("GET", "/api/settings")); } catch (_) {}
-  }
+  try {
+    if (unified) {
+      const saved = await PL.Runtime.translationSettings();
+      if (saved) read(saved);
+    }
+    if (await PL.Service.online()) read(await PL.request("GET", "/api/settings"));
+  } catch (_) { status("可点击「启动并读取翻译配置」重试。"); }
 });

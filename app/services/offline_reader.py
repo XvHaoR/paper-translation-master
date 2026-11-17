@@ -6,7 +6,7 @@ import json
 import math
 from pathlib import Path
 
-from app.models.ir import Block, BlockType
+from app.models.ir import Block, BlockType, ordered_blocks
 from app.rendering.markdown_exporter import render_markdown, SKIP_TYPES
 from app.services.translator import TRANSLATABLE_TYPES
 from app.services.ocr_edit import role
@@ -21,8 +21,9 @@ ROLE_LABELS = {"document_title": "论文标题", "heading": "章节标题", "par
 def render_sections(blocks: list[Block], originals: list[Block] | None, render, *, target_html=None, source_html=None) -> str:
     source = {block.id: block for block in originals or blocks}
     parts = []
+    notes = []
     abstract_seen = False
-    for block in sorted(blocks, key=lambda value: (value.page, value.order)):
+    for block in ordered_blocks(blocks):
         if block.type in SKIP_TYPES:
             continue
         original = source.get(block.id, block)
@@ -40,6 +41,8 @@ def render_sections(blocks: list[Block], originals: list[Block] | None, render, 
         attrs = (f'data-block-id="{html.escape(block.id, quote=True)}" data-page="{block.page}" '
                  f'data-bbox="{html.escape(json.dumps(bbox), quote=True)}" '
                  f'data-block-type="{block.type.value}" data-role="{role(block)}" '
+                 f'data-anchor-id="{html.escape(block.anchor_id or "", quote=True)}" '
+                 f'data-reading-order="{block.reading_order if block.reading_order is not None else ""}" '
                  f'data-regions="{html.escape(json.dumps(original.source.regions), quote=True)}" '
                  f'data-source-text="{html.escape(original.source.text or "", quote=True)}"')
         content = f'<div class="pl-target">{rendered}</div>'
@@ -55,7 +58,9 @@ def render_sections(blocks: list[Block], originals: list[Block] | None, render, 
         if block.quality.needs_review and block.quality.warnings:
             content += '<details class="paper-warning"><summary>识别结果需核对</summary>' + html.escape('；'.join(block.quality.warnings)) + '</details>'
         badge = f'<span class="pl-role">{ROLE_LABELS.get(role(block), block.type.value)}</span>'
-        parts.append(f'<section class="pl-block" {attrs}>{badge}{content}</section>')
+        (notes if block.type is BlockType.FOOTNOTE else parts).append(f'<section class="pl-block" {attrs}>{badge}{content}</section>')
+    if notes:
+        parts.append('<section class="paper-footnotes" role="doc-endnotes" aria-label="脚注"><h2>脚注</h2>' + '\n'.join(notes) + '</section>')
     return "\n".join(parts)
 
 

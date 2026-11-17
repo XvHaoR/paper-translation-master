@@ -54,11 +54,12 @@ state.frame=frame('translation');assert.throws(()=>callback({type:'copy-latex',t
 
 
 def test_failed_connection_can_recover_and_old_connection_cannot_override_new_frame():
-    run_js(["reader-session"], """
+    run_js(["reverse-selection", "scroll-sync", "reader-session"], """
 const state={frame:frame('ocr'),uri:'file:///ocr',saved:{}};
 PaperLoom.ReaderUI.readerActor=()=>{throw new Error('Transient actor import');};
 assert.equal(await PaperLoom.ReaderSession.connect(state),false);assert.equal(state.bridgePending,null);
-let finish;PaperLoom.ReaderUI.readerActor=()=>({sendQuery:()=>new Promise(resolve=>finish=resolve)});
+let finish;PaperLoom.ReaderUI.readerActor=()=>({sendQuery:name=>name==='reader-connect'
+  ? new Promise(resolve=>finish=resolve) : Promise.resolve()});
 const old=PaperLoom.ReaderSession.connect(state);await Promise.resolve();
 PaperLoom.ReaderSession.unbind(state);state.frame=frame('translation');state.uri='file:///translation';
 PaperLoom.ReaderUI.readerActor=()=>({sendQuery:async()=>({available:true})});

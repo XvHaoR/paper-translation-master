@@ -67,11 +67,11 @@
       }
       return rows;
     },
-    async submit(owner, action, rows, ids) {
+    async submit(owner, action, rows, ids, mode) {
       const wanted = new Set(ids);
       const items = rows.filter(row=>row.available && wanted.has(row.id)).map(row=>row.source);
       if (!items.length) throw new Error("请先勾选至少一篇有本地 PDF 的文献");
-      return PL.Tasks.runItems(owner,action,items);
+      return PL.Tasks.runItems(owner,action,items,mode);
     },
     close(owner) {
       const dialog = this.windows.get(owner);

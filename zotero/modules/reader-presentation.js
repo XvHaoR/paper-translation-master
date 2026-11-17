@@ -19,7 +19,8 @@
       // It changes text without scaling the source PDF or raster figures.
       context.textZoom = this.fontSize() / 17;
     },
-    viewOptions() { return { mode: PL.pref("translationView", "bilingual"), focus: PL.pref("blockCompare", true), appearance: PL.Appearance.read() }; },
+    viewOptions(state) { return { mode: PL.pref("translationView", "bilingual"), focus: PL.pref("blockCompare", true),
+      split: state?.mode === "split", syncScroll: PL.pref("syncScroll",false), appearance: PL.Appearance.read() }; },
     async applyStyle(state) {
       const global = state.frame?.browsingContext?.currentWindowGlobal;
       if (global?.documentURI?.scheme === "file") await PL.ReaderUI.readerActor(global).sendQuery("reader-style", { css: PL.readerStyle });

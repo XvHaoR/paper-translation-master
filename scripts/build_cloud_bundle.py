@@ -21,7 +21,9 @@ def build(output, embed):
     spec.loader.exec_module(builder)
     release = builder.BUILDER.load_release(ROOT)
     builder.validate_versions(ROOT, release)
-    assert release["cloudPreview"]
+    unified = release.get("unified", False)
+    if not (unified or release.get("cloudPreview")):
+        raise ValueError("This bundle needs the unified or cloud edition")
     output.mkdir(parents=True, exist_ok=False)
     runtime = output / "runtime"
     for source in builder.files(ROOT):
@@ -36,7 +38,10 @@ def build(output, embed):
             assert Path(entry.filename).name == entry.filename and ":" not in entry.filename
         archive.extractall(python)
     (python / "python313._pth").write_text("python313.zip\n.\nLib/site-packages\n../runtime\n../runtime/scripts\n", encoding="ascii")
-    deps = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["dependencies"]
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    deps = project["dependencies"]
+    if unified:
+        deps += project["optional-dependencies"]["layout"]
     stack, used = list(map(Requirement, deps)), {}
     while stack:
         req = stack.pop()
@@ -44,9 +49,9 @@ def build(output, embed):
             continue
         dist = metadata.distribution(req.name)
         key = req.name.lower().replace("_", "-")
+        assert dist.version in req.specifier, (req, dist.version)
         if key in used:
             continue
-        assert dist.version in req.specifier, (req, dist.version)
         used[key] = dist.version
         stack.extend(map(Requirement, dist.requires or []))
         for file in dist.files or []:
@@ -59,6 +64,40 @@ def build(output, embed):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, target)
     builder.BUILDER.build(portable=True, output=output / f"{release['slug']}-{release['version']}.xpi")
+    if unified:
+        shutil.copyfile(ROOT / "scripts/install_unified.py", output / "install.py")
+        (output / "Install.cmd").write_text(
+            '@echo off\r\n"%~dp0python\\python.exe" -X utf8 "%~dp0install.py"\r\n'
+            'if errorlevel 1 echo Setup failed.\r\npause\r\n', encoding="ascii", newline="")
+        shutil.copyfile(ROOT / "docs/UNIFIED_EDITION.md", output / "README.md")
+    else:
+        write_cloud_install(output, release)
+    test = f"""
+import importlib.util as u
+import pymupdf
+from app.server import create_app
+from app.config import Settings
+from tempfile import TemporaryDirectory
+with TemporaryDirectory() as workspace:
+    assert create_app(Settings(workspace=workspace))
+assert all(u.find_spec(name) is None for name in ("paddle", "paddleocr", "paddlex", "rapidocr"))
+if {unified!r}:
+    assert hasattr(pymupdf.Document, "to_json")
+print("Embedded runtime verified")
+"""
+    subprocess.run([str(python / "python.exe"), "-X", "utf8", "-c", test], cwd=runtime, check=True)
+    subprocess.run([str(python / "python.exe"), "-X", "utf8", str(runtime / "scripts/zotero_service.py"), "--help"],
+                   cwd=runtime, check=True, stdout=subprocess.DEVNULL)
+    (output / "DEPENDENCIES.json").write_text(json.dumps(used, indent=2), encoding="utf-8")
+    archive = output.parent / (output.name + ".zip")
+    with ZipFile(archive, "w", ZIP_DEFLATED) as bundle:
+        for path in sorted(output.rglob("*")):
+            if path.is_file() and "__pycache__" not in path.parts:
+                bundle.write(path, output.name + "/" + path.relative_to(output).as_posix())
+    print(archive, archive.stat().st_size)
+
+
+def write_cloud_install(output, release):
     (output / "Install-Cloud.cmd").write_text(
         '@echo off\r\n"%~dp0python\\python.exe" -X utf8 "%~dp0register-cloud.py"\r\n'
         'if errorlevel 1 echo Setup failed.\r\npause\r\n', encoding="ascii", newline="")
@@ -87,26 +126,6 @@ Windows 10/11 x64 运行包，内含轻量 Python 和阅读依赖，无需另装
 已有 Zotero 附件可继续查看。本包使用相同插件 ID，安装会替换旧版插件。可重新安装旧版 XPI 切回本地模型。
 保留解压目录，移动后请重新运行 Install-Cloud.cmd。包内不包含密钥。源码与许可证见仓库。
 ''', encoding="utf-8")
-    test = """
-import importlib.util as u
-from app.server import create_app
-from app.config import Settings
-from tempfile import TemporaryDirectory
-with TemporaryDirectory() as workspace:
-    assert create_app(Settings(workspace=workspace))
-assert all(u.find_spec(name) is None for name in ("paddle", "paddleocr", "paddlex", "rapidocr", "onnxruntime"))
-print("Embedded runtime verified without any local OCR models")
-"""
-    subprocess.run([str(python / "python.exe"), "-X", "utf8", "-c", test], cwd=runtime, check=True)
-    subprocess.run([str(python / "python.exe"), "-X", "utf8", str(runtime / "scripts/zotero_service.py"), "--help"],
-                   cwd=runtime, check=True, stdout=subprocess.DEVNULL)
-    (output / "DEPENDENCIES.json").write_text(json.dumps(used, indent=2), encoding="utf-8")
-    archive = output.parent / (output.name + ".zip")
-    with ZipFile(archive, "w", ZIP_DEFLATED) as bundle:
-        for path in sorted(output.rglob("*")):
-            if path.is_file() and "__pycache__" not in path.parts:
-                bundle.write(path, output.name + "/" + path.relative_to(output).as_posix())
-    print(archive, archive.stat().st_size)
 
 
 if __name__ == "__main__":

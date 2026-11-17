@@ -11,6 +11,8 @@ tmp/
 log/
 *.pid
 scripts/launcher.lock
+service-state-*.json
+service-lease-*.json
 
 # Generated application packages
 extension/dist/
@@ -24,6 +26,7 @@ dist/
 .venv/
 node_modules/
 .env
+.env.*
 .idea/
 .vscode/
 

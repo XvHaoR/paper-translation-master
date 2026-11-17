@@ -2,6 +2,16 @@
 (() => {
   const PL = PaperLoom;
   PL.Runtime = {
+    unifiedDirectory: "PaperTranslationMasterUnified",
+    dataDirectory(name) {
+      const base = Zotero.isWin ? Services.env.get("LOCALAPPDATA")
+        : Services.env.get("XDG_DATA_HOME") || PathUtils.join(Services.env.get("HOME"), ".local", "share");
+      return PathUtils.join(base, name);
+    },
+    async named(name) {
+      const path = PathUtils.join(this.dataDirectory(name), "runtime.json");
+      return await IOUtils.exists(path) ? this.descriptor(path) : null;
+    },
     async descriptor(path) {
       const value = await IOUtils.readJSON(path);
       if (value.schema !== 1 || typeof value.projectRoot !== "string" || typeof value.pythonPath !== "string"
@@ -31,6 +41,11 @@
       return null;
     },
     async resolve() {
+      if (PL.config.unified) {
+        const runtime = await this.named(this.unifiedDirectory);
+        if (!runtime || runtime.backend !== "local") throw new Error("请先运行融合版安装包中的 Install.cmd（源码安装使用 install.py）");
+        return {...runtime, pinned:true};
+      }
       // Local test builds pin a complete code snapshot without changing the
       // stable install descriptor or saved engine preferences.
       if (PL.config.localHTMLPreview && PL.config.localRuntimeDescriptor) {
@@ -64,6 +79,50 @@
       if (installed) return {...installed,pythonPath:PL.pref("pythonPath", "") || installed.pythonPath,
         backend:PL.pref("backend", installed.backend)};
       return null;
+    },
+    async localEngine(runtime) {
+      if (runtime.backend !== "wsl") return { ...runtime, pinned:true };
+      const unified = await this.resolve();
+      // Keep the registered model environment and run the compatible service from this release.
+      return { ...runtime, projectRoot:unified.projectRoot,
+        workspace:PathUtils.join(this.dataDirectory(this.unifiedDirectory), "local-wsl"), pinned:true };
+    },
+    async localOCR(selected = PL.pref("unifiedLocalEngine", "auto")) {
+      if (selected === "custom") {
+        const projectRoot = PL.pref("unifiedLocalRoot", "");
+        const pythonPath = PL.pref("unifiedLocalPython", "");
+        if (!projectRoot || !pythonPath || !PathUtils.isAbsolute(projectRoot) || !PathUtils.isAbsolute(pythonPath))
+          throw new Error("请填写本地 OCR 项目目录与 Python 的绝对路径");
+        return {projectRoot, pythonPath, backend:PL.pref("unifiedLocalBackend", "local"), pinned:true};
+      }
+      const variants = {gpu:"PaperTranslationMaster", cpu:"PaperTranslationMasterRapidOCR"};
+      let failure;
+      for (const key of selected === "auto" ? ["gpu", "cpu"] : Object.keys(variants).filter(key => key === selected)) {
+        try {
+          const runtime = await this.named(variants[key]);
+          if (runtime && ["local", "wsl"].includes(runtime.backend)) {
+            return await this.localEngine({...runtime, ocrMode:key === "cpu" ? "rapidocr" : "official"});
+          }
+        } catch (error) { failure = error; }
+      }
+      // Older manual installations keep their paths in the legacy preferences.
+      if (selected === "auto") {
+        const projectRoot = PL.pref("projectRoot", "");
+        const pythonPath = PL.pref("pythonPath", "");
+        if (projectRoot && pythonPath && await IOUtils.exists(PathUtils.join(projectRoot, "release.json"))) {
+          const release = await IOUtils.readJSON(PathUtils.join(projectRoot, "release.json")).catch(() => null);
+          const backend = PL.pref("backend", "local");
+          if (release && !release.nativeOnly && !release.cloudPreview && ["wsl", "local"].includes(backend))
+            return this.localEngine({projectRoot, pythonPath, backend});
+        }
+      }
+      throw failure || new Error("未找到所选的本地 OCR 引擎。请安装 GPU／CPU 引擎，或在设置中指定已有环境。");
+    },
+    async translationSettings() {
+      const runtime = await this.resolve();
+      const workspace = runtime.environment?.PAPERBRIDGE_WORKSPACE || PathUtils.join(runtime.projectRoot, "workspace");
+      const file = PathUtils.join(workspace, "settings.json");
+      return await IOUtils.exists(file) ? IOUtils.readJSON(file) : null;
     },
     download() {
       Zotero.launchURL("https://github.com/XvHaoR/paper-translation-master/releases");

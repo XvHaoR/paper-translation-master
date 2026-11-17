@@ -1,18 +1,19 @@
 {
-  "name": "论文翻译大师 · 云端版",
-  "slug": "paper-translation-master-cloud",
-  "runtimeDirectory": "PaperTranslationMasterCloud",
-  "version": "0.6.0",
+  "name": "论文翻译大师 · 融合预览版",
+  "slug": "paper-translation-master",
+  "runtimeDirectory": "PaperTranslationMasterUnified",
+  "version": "0.7.1",
   "minimumExportSchema": 13,
   "repository": "XvHaoR/paper-translation-master",
-  "prerelease": false,
+  "prerelease": true,
   "cpuInstaller": false,
   "changes": [
-    "增加飞桨云端 PaddleOCR-VL-1.6：无需下载本机 OCR 模型，Windows 轻量运行环境随包提供。",
-    "保留与本地版相同的批量 OCR、大模型翻译、HTML 阅读、PDF 段落对照、内容编辑、公式复制及表格导出功能。",
-    "保留已保存结果的离线阅读；云端自动 OCR 单独开启，密钥只保存在本机。",
-    "合入模型启停、进度状态和 OCR 类别向已有译文同步的修复。",
-    "保留本地 GPU 与 RapidOCR CPU 完整安装包及部署文档，README 明确区分硬件要求、云端优势与 API 注册步骤。"
+    "检测已有 WSL FastDeploy 环境并复用 Python 和模型，通过融合版运行目录启动兼容服务。",
+    "自动将原 PDF、识别结果和译文归到同一个 Zotero 文献条目。",
+    "合并直接解析 PDF、本地 OCR 和云端 OCR，仅安装一个 Zotero 插件。",
+    "统一排版与阅读工具，支持双向联动滚动、高亮和 HTML／Markdown／Excel 导出。",
+    "译文绑定实际使用的识别快照；Temperature 可留空使用模型默认值。"
   ],
-  "cloudPreview": true
+  "unified": true,
+  "cloudPreview": false
 }

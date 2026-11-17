@@ -26,9 +26,10 @@ STATIC_EXTENSIONS = {".js", ".css", ".html", ".json", ".svg", ".png", ".woff", "
 INSTALLER_EXTENSIONS = {".py", ".txt", ".md", ".ps1", ".cmd", ".json"}
 RUNTIME_SCRIPTS = {"scripts/launcher.py", "scripts/zotero_service.py", "scripts/wsl_model.py", "scripts/ocr_health.py",
                    "scripts/process_lifetime.py", "scripts/edit_saved_ocr.py", "scripts/runtime_config.py"}
-ROOT_FILES = {"pyproject.toml", "release.json", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"}
-SOURCE_ROOT_FILES = ROOT_FILES | {".gitignore"}
-PUBLIC_DOCS = {"docs/INSTALLATION.md", "docs/RELEASING.md", "docs/READER_ARCHITECTURE.md", "docs/RAPIDOCR_EDITION.md"}
+ROOT_FILES = {"pyproject.toml", "release.json", "README.md", "CHANGELOG.md", "LICENSE", "THIRD_PARTY_NOTICES.md"}
+SOURCE_ROOT_FILES = ROOT_FILES | {".gitignore", "Install.cmd"}
+PUBLIC_DOCS = {"docs/INSTALLATION.md", "docs/RELEASING.md", "docs/READER_ARCHITECTURE.md", "docs/RAPIDOCR_EDITION.md",
+               "docs/UNIFIED_EDITION.md", "docs/MIGRATION.md"}
 PRIVATE_PATTERNS = [
     re.compile(rb"[A-Za-z]:[\\/]+(?:Users[\\/]+(?!Public(?:[\\/]|$)|Default(?:[\\/]|$))[^\\/\s\"']+[\\/]+|claude_test[\\/]+)", re.I),
     re.compile(rb"(?:sk-[A-Za-z0-9_-]{24,}|AIza[A-Za-z0-9_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,})"),
@@ -49,7 +50,7 @@ def eligible(relative: str, *, source: bool = False) -> bool:
                 or (relative.startswith("app/static/mathjax/") and path.name in {"LICENSE", "NOTICE"}))
     if relative.startswith("licenses/"):
         return path.suffix in {".txt", ".md"} or path.name in {"LICENSE", "NOTICE"}
-    if source and relative == "scripts/build_cloud_bundle.py":
+    if source and relative in {"scripts/build_cloud_bundle.py", "scripts/install_unified.py"}:
         return True
     if relative in RUNTIME_SCRIPTS:
         return True
@@ -83,8 +84,10 @@ def files(root: Path, *, source: bool = False) -> list[Path]:
             candidates.update(path for path in (root / directory).rglob("*") if path.is_file())
     if source:
         candidates.add(root / "packaging/build_release.py")
-        if (root / "scripts/build_cloud_bundle.py").is_file():
-            candidates.add(root / "scripts/build_cloud_bundle.py")
+        for script in ("build_cloud_bundle.py", "install_unified.py"):
+            path = root / "scripts" / script
+            if path.is_file():
+                candidates.add(path)
     result = sorted(path for path in candidates if eligible(path.relative_to(root).as_posix(), source=source))
     for path in result:
         if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
@@ -200,7 +203,21 @@ def build_release(*, root: Path = ROOT, output: Path | None = None,
         "安装器暂未进行 Windows 代码签名，系统可能显示未知发布者。可用 SHA256SUMS 校验下载文件。\n"
         "首次模型下载和安装可能需要较长时间，安装窗口会显示进度及错误日志。\n",
         encoding="utf-8")
-    if release.get("cloudPreview"):
+    if release.get("unified"):
+        notes.write_text(f"## 论文翻译大师 {version} · 融合预览版\n\n" +
+            "".join(f"- {item}\n" for item in release["changes"]) +
+            "\n### 下载与安装\n\n"
+            "1. 下载 Windows x64 完整 ZIP，解压到固定目录后运行 `Install.cmd`。\n"
+            "2. 在 Zotero 的「工具 → 插件 → 从文件安装」中选中包内 XPI，然后重启。\n"
+            "3. 设置中选择识别方案。本地 OCR 可继续使用已部署的 GPU／CPU 引擎，"
+            "云端 OCR 需填写个人 [AI Studio Access Token](https://aistudio.baidu.com/account/accessToken)。\n\n"
+            "直接解析 PDF 使用本机文字层。扫描 PDF 请使用本地或云端 OCR。"
+            "云端会把所选 PDF 上传至飞桨，单篇上限 50 MB。\n\n"
+            "已保存结果可以离线阅读。首次启动会整理能唯一匹配原 PDF 的独立附件，并在 Zotero 配置目录保存原层级记录。\n\n"
+            "预览版采用手动更新。已有本地 GPU／CPU 安装器继续在 0.5.0 Release 提供。"
+            "WSL 须有可启动的 FastDeploy 服务。详见仓库的安装与升级说明。下载可用 `SHA256SUMS` 核对。\n",
+            encoding="utf-8")
+    elif release.get("cloudPreview"):
         notes.write_text(f"论文翻译大师 · 云端版 {version}\n\n" +
             "".join(f"- {item}\n" for item in release["changes"]) +
             "\nWindows 首次使用：下载 Windows x64 完整 ZIP，解压并运行 Install-Cloud.cmd，" +

@@ -48,6 +48,15 @@ def test_available_preferred_port_is_preserved():
     assert zotero_service.available_port(preferred) == preferred
 
 
+def test_managed_wsl_workspace_uses_its_own_launcher_lock(tmp_path, monkeypatch):
+    monkeypatch.delenv("PAPERLOOM_LAUNCHER_LOCK", raising=False)
+    root = tmp_path / "runtime"
+    workspace = tmp_path / "local-wsl"
+    with zotero_service.acquire_lock(root), zotero_service.acquire_lock(root, str(workspace)):
+        assert (root / "scripts" / "launcher.lock").exists()
+        assert (workspace / "launcher.lock").exists()
+
+
 def test_lease_requires_matching_instance_and_recent_heartbeat(tmp_path):
     lease = tmp_path / "lease.json"
     assert not zotero_service.lease_valid(lease, "one", 100)

@@ -47,7 +47,7 @@ def run_js(script):
     node = shutil.which("node")
     if not node:
         pytest.skip("Node runtime required")
-    modules = ["pdf-context", "pdf-regions", "pdf-highlight", "comparison"]
+    modules = ["pdf-context", "pdf-regions", "pdf-highlight", "pdf-selection", "scroll-sync", "reverse-selection", "comparison"]
     source = HARNESS + "\n".join(
         (ROOT / "zotero/modules" / f"{name}.js").read_text(encoding="utf-8")
         for name in modules
@@ -155,11 +155,11 @@ assert.equal(state.lastLocated.block,'newer-ocr-selection');assert.equal(navigat
 def test_native_document_replacement_and_unbind_cancel_pending_work():
     run_js(r"""
 const {state,view,handlers,navigated}=fixture(),pending=deferred();
-PaperLoom.Comparison.bind(state);assert.equal(handlers.size,1);
+PaperLoom.Comparison.bind(state);assert.deepEqual([...handlers.keys()],['pointerdown','keydown','click']);
 PaperLoom.SourceRegions.resolve=async(_state,data)=>{await pending.promise;return[{page:data.page,bbox:data.bbox}];};
 const old=PaperLoom.Comparison.locate(state,{block:'old-doc',page:1,bbox:[.1,.1,.2,.2]});await flush();
 const replacement=fixture();view._iframeWindow=replacement.view._iframeWindow;
-PaperLoom.Comparison.bind(state);assert.equal(handlers.size,0);assert.equal(replacement.handlers.size,1);
+PaperLoom.Comparison.bind(state);assert.equal(handlers.size,0);assert.equal(replacement.handlers.size,3);
 pending.resolve();assert.equal(await old,false);assert.equal(navigated.length,0);
 const block=deferred();PaperLoom.SourceRegions.resolve=async(_state,data)=>{await block.promise;return[{page:data.page,bbox:data.bbox}];};
 const closing=PaperLoom.Comparison.locate(state,{block:'closing',page:1,bbox:[.1,.1,.2,.2]});await flush();

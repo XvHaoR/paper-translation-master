@@ -1,7 +1,7 @@
 /* Local HTML exploration. Owns presentation only; source IDs and coordinates
  * stay on the original .pl-block nodes, along with their existing listeners. */
 const MEDIA = new Set(["figure", "table"]);
-const LAYOUT_VERSION = "2";
+const LAYOUT_VERSION = "3";
 
 function kind(block) {
   const value = block.dataset.role || block.dataset.blockType || "paragraph";
@@ -18,8 +18,12 @@ function captionIdentity(block) {
 
 function captionOwner(block, index, blocks) {
   const role = kind(block), wanted = role === "table_caption" ? "table" : "figure";
+  if (block.dataset.anchorId) {
+    const owner=blocks.find(candidate=>candidate.dataset.blockId===block.dataset.anchorId && kind(candidate)===wanted);
+    if (owner) return owner;
+  }
   // Associate only neighbouring content blocks. Never guess that intervening
-  // body text belongs to a figure or change the OCR's paragraph boundaries.
+  // body text belongs to a figure or change the 解析's paragraph boundaries.
   for (const offset of wanted === "table" ? [1, -1] : [-1, 1]) {
     let identity = captionIdentity(block);
     for (let next=index+offset; next>=0 && next<blocks.length; next+=offset) {
@@ -203,11 +207,22 @@ function enhance(doc) {
     }
     groupAbstracts(doc,blocks);
     groupUnownedCaptions(doc,blocks,owners);
+    const notes=blocks.filter(block=>kind(block)==="footnote");
+    if (notes.length) {
+      let panel=main.querySelector('.paper-footnotes');
+      if (!panel) {
+        panel=doc.createElement('section'); panel.className='paper-footnotes';
+        panel.setAttribute('role','doc-endnotes'); panel.setAttribute('aria-label','脚注');
+        const heading=doc.createElement('h2'); heading.textContent='脚注'; panel.append(heading);
+      }
+      main.append(panel);
+      for (const block of notes) panel.append(block.closest('.paper-note') || block);
+    }
     addOutline(doc, blocks);
     const nav = doc.querySelector("nav");
     if (nav && !nav.querySelector(".paper-view-badge")) {
       const badge = doc.createElement("span"); badge.className = "paper-view-badge";
-      badge.textContent = "HTML 阅读"; nav.prepend(badge);
+      badge.textContent = "HTML 探索版"; nav.prepend(badge);
     }
     main.classList.add("paper-article"); body.dataset.paperEnhanced = "1";
     body.dataset.paperLayoutVersion = LAYOUT_VERSION;
@@ -217,14 +232,18 @@ function enhance(doc) {
 
 function exportPage(doc, assets = "assets") {
   if (!/^[A-Za-z0-9_.%()-]{1,240}$/.test(assets)) throw new Error("HTML 资源目录名称无效");
-  if (doc.body.classList.contains("pl-editing")) throw new Error("请先保存或退出 OCR 编辑，再导出 HTML");
+  if (doc.body.classList.contains("pl-editing")) throw new Error("请先保存或退出 解析 编辑，再导出 HTML");
   enhance(doc);
   const root = doc.documentElement.cloneNode(true), body = root.querySelector("body");
   body.classList.remove("pl-focus", "has-selection"); body.dataset.paperStandalone = "true";
+  delete body.dataset.paperEmbedded;
   for (const key of Object.keys(body.dataset)) {
     if (/^(?:readerBridge|zoteroBridge|actionReceived|mathControls)/.test(key)) delete body.dataset[key];
   }
   root.querySelectorAll(".pl-block.selected").forEach(node => node.classList.remove("selected"));
+  root.querySelectorAll(".pl-reverse-paragraph").forEach(node=>node.classList.remove("pl-reverse-paragraph"));
+  root.querySelectorAll(".pl-reverse-overlay,#paperloom-reverse-style").forEach(node=>node.remove());
+  delete body.dataset.reverseSelectionMatch;
   root.querySelectorAll(".pl-block-tools,.pl-math-copy,.pl-edit-fields,.pl-editor-bar,#pl-editor-data,script[src$='ocr_editor.js'],style[id^='MJX']").forEach(node => node.remove());
   root.querySelectorAll("dialog").forEach(node => { node.removeAttribute("open"); node.querySelector("img")?.removeAttribute("src"); });
   root.querySelectorAll("[data-latex]").forEach(node => {

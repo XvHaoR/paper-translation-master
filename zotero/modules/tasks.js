@@ -12,7 +12,7 @@
     autoCandidates: new Map(),
     batches: new Map(),
     async sourceFor(item) {
-      const key = PL.tags(item).find(tag => tag.startsWith("paperloom:pdf:"))?.slice(14);
+      const key = PL.AttachmentGroups.sourceKey(item);
       if (key) item = await Zotero.Items.getByLibraryAndKeyAsync(item.libraryID, key);
       if (!item) throw new Error("原 PDF 附件已删除，已保存结果仍可直接查看");
       if (item.deleted) throw new Error("这篇文献已删除，请刷新论文列表");
@@ -25,13 +25,13 @@
       if (item.isAttachment() && item.attachmentContentType === "application/pdf") return item;
       throw new Error("请选择带 PDF 的文献，或直接选中 PDF 附件");
     },
-    enqueue(source, kind, window = Zotero.getMainWindow(), { force = false, batch = null } = {}) {
+    enqueue(source, kind, window = Zotero.getMainWindow(), { force = false, batch = null, mode = PL.Recognition?.defaultMode() } = {}) {
       if (PL.Editing.jobs.has(PL.Store.key(source))) return Promise.reject(new Error("请等待 OCR 修改保存完成"));
       const language = PL.language();
-      const key = `${PL.Store.key(source)}/${kind}/${language}/${force ? "force" : "process"}`;
+      const key = `${PL.Store.key(source)}/${kind}/${language}/${mode || ""}/${force ? "force" : "process"}`;
       if (this.pending.has(key)) return this.pending.get(key);
       const promise = new Promise((resolve, reject) => {
-        this.queue.push({ source, kind, language, window, key, force, batch, resolve, reject });
+        this.queue.push({ source, kind, language, window, key, force, mode, batch, resolve, reject });
         PL.Store.set(source, kind, { state: "queued", message: "等待处理" }, language);
       });
       this.pending.set(key, promise);
@@ -75,7 +75,7 @@
     async request(task, method, path, body, options = {}) {
       this.check(task);
       const result = await PL.request(method, path, body, {
-        ...options, requestObserver: xhr => { task.xhr = xhr; if (task.cancelled) xhr.abort(); },
+        serviceURL: task.serviceURL, ...options, requestObserver: xhr => { task.xhr = xhr; if (task.cancelled) xhr.abort(); },
       });
       this.check(task);
       return result;
@@ -86,25 +86,37 @@
       if ((await IOUtils.stat(path)).size > 200 * 1024 * 1024) throw new Error("PDF 超过 200MB 限制");
       return { path, hash: await Zotero.Utilities.Internal.md5Async(Zotero.File.pathToFile(path)) };
     },
-    autoPref() { return PL.Service?.backend?.() === "cloud" ? "cloudAutoOCR" : "autoOCR"; },
+    autoPref() {
+      if (PL.config?.unified) return PL.Recognition.autoPref();
+      return PL.Service?.backend?.() === "cloud" ? "cloudAutoOCR" : "autoOCR";
+    },
     async parse(task, fingerprint) {
-      await PL.Service.ensure();
+      const unified = PL.config?.unified;
+      const service = unified ? PL.Recognition.service(task.mode) : PL.Service;
+      if (unified) {
+        task.message = `正在准备${PL.Recognition.label(task.mode)}…`;
+        PL.UI.refreshTasks();
+      }
+      await service.ensure();
+      task.serviceURL = service.url?.();
       this.check(task);
       const window = task.window;
       if (!window || window.closed) throw new Error("Zotero 窗口已关闭");
-      const cloud = PL.Service.backend?.() === "cloud";
+      const cloud = unified ? task.mode === "cloud" : service.backend?.() === "cloud";
       if (cloud && (await IOUtils.stat(fingerprint.path)).size > 50000000) throw new Error("云端 OCR 上传上限为 50 MB，请先拆分 PDF");
       const form = new window.FormData();
-      form.append("ocr_mode", PL.Service.ocrMode());
+      form.append("ocr_mode", unified && cloud ? "cloud" : service.ocrMode());
       form.append("force", String(!!task.force || !!PL.Store.get(task.source)?.forceNextOCR));
       form.append("upload", new window.Blob([await IOUtils.read(fingerprint.path)], { type: "application/pdf" }), PathUtils.filename(fingerprint.path));
       // Record the server job ID even if cancellation races with the upload
       // response, so the newly submitted job can still be cancelled below.
-      const uploaded = await PL.request("POST", "/api/jobs", undefined, { body: form, headers: { "Content-Type": "multipart/form-data", ...(cloud ? {"X-PaperLoom-Cloud":"1"} : {}) },
+      const uploaded = await PL.request("POST", "/api/jobs", undefined, { serviceURL:task.serviceURL,
+        body: form, headers: { "Content-Type": "multipart/form-data", ...(cloud ? {"X-PaperLoom-Cloud":"1"} : {}) },
         requestObserver: xhr => { task.xhr = xhr; if (task.cancelled) xhr.abort(); } });
       task.jobID = uploaded.job_id;
+      task.jobServiceURL = task.serviceURL;
       if (task.cancelled) {
-        await PL.request("POST", `/api/jobs/${encodeURIComponent(task.jobID)}/cancel`);
+        await PL.request("POST", `/api/jobs/${encodeURIComponent(task.jobID)}/cancel`, undefined, {serviceURL:task.jobServiceURL});
         this.check(task);
       }
       const deadline = Date.now() + 3600000;
@@ -130,7 +142,9 @@
       fingerprint ||= await this.fingerprint(task.source);
       const saved = await PL.Store.saved(task.source, "ocr", task.language, fingerprint.hash);
       this.check(task);
-      if (saved && !task.force && !PL.Store.get(task.source)?.forceNextOCR) {
+      if (saved && !task.force && !PL.Store.get(task.source)?.forceNextOCR &&
+          (!PL.config?.unified || saved.recognitionMode === task.mode && (task.mode !== "local" ||
+            saved.localEngine === PL.pref("unifiedLocalEngine", "auto")))) {
         PL.Store.set(task.source, "ocr", { ...saved, attachment: undefined, state: "ready", message: "" });
         return saved;
       }
@@ -138,14 +152,18 @@
       try {
         documentID = await this.parse(task, fingerprint);
         const artifact = await this.request(task, "POST", `/api/documents/${encodeURIComponent(documentID)}/ocr-export`);
+        if (PL.config?.unified) {
+          artifact.recognition_mode = task.mode;
+          if (task.mode === "local") artifact.local_engine = PL.pref("unifiedLocalEngine", "auto");
+        }
         this.check(task);
         if ((await this.fingerprint(task.source)).hash !== fingerprint.hash) throw new Error("PDF 在处理期间已修改，请重试");
         PL.Store.ensure(task.source).forceNextOCR = false;
-        if (saved?.exportID === artifact.id) {
+        if (saved?.exportID === artifact.id && (!PL.config?.unified || saved.recognitionMode === task.mode)) {
           PL.Store.set(task.source, "ocr", { ...saved, attachment: undefined, state: "ready", message: "" });
           return saved;
         }
-        return await PL.Artifacts.download(task.source, "ocr", fingerprint.hash, artifact, task.language, () => this.check(task));
+        return await PL.Artifacts.download(task.source, "ocr", fingerprint.hash, artifact, task.language, () => this.check(task), task.serviceURL);
       }
       catch (error) {
         if (!task.cancelled) PL.Store.set(task.source, "ocr", { state: "failed", message: error.message });
@@ -155,13 +173,15 @@
     async translateCore(task) {
       const fingerprint = await this.fingerprint(task.source);
       const saved = await PL.Store.saved(task.source, "translate", task.language, fingerprint.hash);
+      const latestSource = await PL.Store.saved(task.source, "ocr", task.language, fingerprint.hash);
       this.check(task);
       if (saved && !PL.Editing.stale(PL.Store.get(task.source), task.language)) {
         PL.Store.set(task.source, "translate", { ...saved, attachment: undefined, state: "ready", message: "" }, task.language);
         return saved;
       }
-      const ocr = await this.ocrCore(task, fingerprint);
+      const ocr = (PL.config?.unified && latestSource) || await this.ocrCore(task, fingerprint);
       await PL.Service.ensure();
+      task.serviceURL = PL.Service.url?.();
       const config = await this.request(task, "GET", "/api/settings");
       if (!config.llm_base_url || !config.llm_model) throw new Error("请在论文翻译大师设置中填写翻译服务地址与模型；OCR 版本已保存");
       task.message = "正在翻译，完成后自动保存…";
@@ -169,7 +189,10 @@
       // A saved OCR attachment can outlive the server workspace. If server data
       // was removed, uploading the PDF rebuilds it rather than failing forever.
       let documentID = ocr.documentID;
-      if (ocr.editRevision) await PL.Editing.uploadSource(task, ocr);
+      if (PL.config?.unified) {
+        await PL.Editing.uploadSource(task, ocr, ocr.sourceRevision);
+      }
+      else if (ocr.editRevision) await PL.Editing.uploadSource(task, ocr);
       else try { await this.request(task, "GET", `/api/documents/${encodeURIComponent(documentID)}`, undefined, { timeout: 5000 }); }
       catch (_) {
         documentID = await this.parse(task, fingerprint);
@@ -177,13 +200,14 @@
       }
       const artifact = await this.request(task, "POST", `/api/documents/${encodeURIComponent(documentID)}/translations`, {
         lang_to: task.language, force: !!PL.Store.get(task.source)?.forceNextTranslation?.[task.language],
-        source_revision: ocr.editRevision || undefined,
+        source_revision: (PL.config?.unified ? ocr.sourceRevision : ocr.editRevision) || undefined,
         revision: typeof PL.Store.get(task.source)?.forceNextTranslation?.[task.language] === "string"
           ? PL.Store.get(task.source).forceNextTranslation[task.language] : undefined,
       });
+      if (PL.config?.unified) artifact.recognition_mode = ocr.recognitionMode;
       this.check(task);
       if ((await this.fingerprint(task.source)).hash !== fingerprint.hash) throw new Error("PDF 在翻译期间已修改，请重试");
-      const result = await PL.Artifacts.download(task.source, "translate", fingerprint.hash, artifact, task.language, () => this.check(task));
+      const result = await PL.Artifacts.download(task.source, "translate", fingerprint.hash, artifact, task.language, () => this.check(task), task.serviceURL);
       if (PL.Store.get(task.source)?.forceNextTranslation) delete PL.Store.get(task.source).forceNextTranslation[task.language];
       await PL.Store.flush();
       return result;
@@ -203,7 +227,7 @@
         task.cancelled = true;
         task.xhr?.abort();
         if (task.jobID) {
-          try { await PL.request("POST", `/api/jobs/${encodeURIComponent(task.jobID)}/cancel`, undefined, { timeout: 3000 }); }
+          try { await PL.request("POST", `/api/jobs/${encodeURIComponent(task.jobID)}/cancel`, undefined, { timeout: 3000, serviceURL:task.jobServiceURL }); }
           catch (error) { Zotero.logError(error); }
         }
       }
@@ -223,7 +247,7 @@
       search.addCondition("tag", "is", `paperloom:pdf:${source.key}`);
       search.addCondition("tag", "is", "paperloom:ocr");
       const attachments = (await Zotero.Items.getAsync(await search.search()))
-        .filter(item => item.isAttachment() && !item.deleted);
+        .filter(item => PL.AttachmentGroups.sourceKey(item) === source.key);
       if (attachments.length) await Zotero.Items.trashTx(attachments.map(item => item.id));
       const record = PL.Store.ensure(source);
       record.ocr = { state: "pending", message: "旧 OCR 已清除，下次将重新识别" };
@@ -240,7 +264,7 @@
       const search = new Zotero.Search(); search.libraryID = source.libraryID;
       search.addCondition("tag", "is", `paperloom:pdf:${source.key}`);
       search.addCondition("tag", "is", `paperloom:lang:${language}`);
-      const attachments = (await Zotero.Items.getAsync(await search.search())).filter(item => item.isAttachment() && !item.deleted
+      const attachments = (await Zotero.Items.getAsync(await search.search())).filter(item => PL.AttachmentGroups.sourceKey(item) === source.key
         && PL.tags(item).some(tag => tag === "paperloom:reader" || tag === "paperloom:markdown"));
       if (attachments.length) await Zotero.Items.trashTx(attachments.map(item => item.id));
       const record = PL.Store.ensure(source);
@@ -248,18 +272,23 @@
       (record.forceNextTranslation ||= {})[language] = Array.from(crypto.getRandomValues(new Uint8Array(12)), value => value.toString(16).padStart(2,"0")).join("");
       await PL.Store.flush(); PL.Store.refresh();
     },
-    async selected(window, action) {
+    async selected(window, action, mode) {
       const items = [...window.ZoteroPane.getSelectedItems()];
-      return this.runItems(window,action,items);
+      return this.runItems(window,action,items,mode);
     },
-    async runItems(window, action, items) {
+    async runItems(window, action, items, mode) {
       if (!items.length) throw new Error("请先选中文献或 PDF 附件");
       const sources = [];
+      const snapshots = new Map();
       const errors = [];
       for (const item of items) {
         try {
           const source = await this.sourceFor(item);
           if (!sources.some(value => value.id === source.id)) sources.push(source);
+          if (PL.config?.unified && action.startsWith("open-") && item !== source && item.isAttachment?.()) {
+            const saved = await PL.Store.savedAttachment(item, action === "open-ocr" ? "ocr" : "translate");
+            if (saved) snapshots.set(source.id, saved);
+          }
         }
         catch (error) { errors.push(error.message); }
       }
@@ -274,7 +303,8 @@
           if (action === "clear-ocr") { await this.clearOCR(source); return; }
           if (action === "clear-translation") { await this.clearTranslation(source); return; }
           const kind = ["translate", "open-translation"].includes(action) ? "translate" : "ocr";
-          const saved = action.startsWith("open-") ? await PL.Store.saved(source, kind) : await this.enqueue(source, kind, window, { force: action === "force-ocr", batch });
+          const saved = action.startsWith("open-") ? snapshots.get(source.id) || await PL.Store.saved(source, kind)
+            : await this.enqueue(source, kind, window, { force: action === "force-ocr", batch, mode });
           if (!saved) throw new Error(kind === "ocr" ? "尚无 OCR 版本，请先执行 OCR" : "尚无译文，请先执行翻译");
           // Processing is always a background operation, even for a one-paper
           // batch. Only the user's explicit View command creates a reader tab.
@@ -303,7 +333,7 @@
           PL.Store.reconcile().then(() => { PL.Store.flush(); PL.Store.refresh(); }).catch(error => Zotero.logError(error));
         }
         if (!PL.pref(this.autoPref(), false)) return;
-        if (event === "add") for (const id of ids) this.autoCandidates.set(id, { started: Date.now() });
+        if (event === "add") for (const id of ids) this.autoCandidates.set(id, { started: Date.now(), mode:PL.Recognition?.defaultMode() });
         if (event === "add" || (event === "modify" && ids.some(id => this.autoCandidates.has(id)))) {
           clearTimeout(this.autoTimer);
           this.autoTimer = setTimeout(() => this.processAuto().catch(error => Zotero.logError(error)), 1000);
@@ -313,6 +343,10 @@
     async processAuto() {
       if (!PL.alive || !PL.pref(this.autoPref(), false)) { this.autoCandidates.clear(); return; }
       for (const [id, candidate] of this.autoCandidates) {
+        if (PL.config?.unified && candidate.mode !== PL.Recognition.defaultMode()) {
+          this.autoCandidates.delete(id);
+          continue;
+        }
         const item = await Zotero.Items.getAsync(id);
         if (!item || item.deleted || !item.isAttachment() || item.attachmentContentType !== "application/pdf") {
           this.autoCandidates.delete(id);
@@ -324,7 +358,7 @@
         }
         this.autoCandidates.delete(id);
         // Automatic processing is deliberately OCR-only, regardless of LLM configuration.
-        this.enqueue(item, "ocr").catch(error => Zotero.logError(error));
+        this.enqueue(item, "ocr", undefined, {mode:candidate.mode}).catch(error => Zotero.logError(error));
       }
       if (this.autoCandidates.size) this.autoTimer = setTimeout(() => this.processAuto().catch(error => Zotero.logError(error)), 3000);
     },

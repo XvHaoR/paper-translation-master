@@ -73,18 +73,19 @@ def _export_blocks(data: dict, doc_dir: Path, output: Path) -> list[Block]:
             if block.content.items:
                 block.content.items = [normalize_bare_math(item) for item in block.content.items]
         blocks.append(block)
-    if data.get("editor_prepared"):
+    if data.get("editor_prepared") or data.get("document", {}).get("parser", {}).get("name") == "pymupdf-layout":
         # These images already contain the user's corrected composite figures.
         # Re-running grouping here could recreate a deliberately deleted panel.
         for block in blocks:
-            if block.type is BlockType.FIGURE:
+            if block.content.image_path:
                 relative = block.content.image_path or ""
                 path = (doc_dir / relative).resolve()
                 if not path.is_relative_to(doc_dir.resolve()) or not path.is_file():
                     raise ValueError("编辑文档引用的图片不存在")
                 target = output / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(path, target)
+                if path != target.resolve():
+                    shutil.copyfile(path, target)
         return blocks
     from app.services.paper_semantics import prepare_blocks
     return export_figures(prepare_blocks(blocks, data, doc_dir), data, doc_dir, output)
@@ -179,7 +180,7 @@ def create_ocr_export(doc_dir: Path) -> dict:
 def create_translation(doc_dir: Path, config: dict, cache: translator.TranslateCache, *, force: bool = False, cache_only: bool = False, revision: str | None = None, source_dir: Path | None = None) -> dict:
     """Return an existing artifact or translate and atomically publish a complete bundle.
 
-    Source IR, provider, model and language identify a version. API keys never enter
+    Source IR, provider, model, language and explicit temperature identify a version. API keys never enter
     manifests. Errors leave the previous version intact and block-cache work reusable.
     """
     if force and cache_only:
@@ -196,6 +197,9 @@ def create_translation(doc_dir: Path, config: dict, cache: translator.TranslateC
         "model": config.get("llm_model", ""),
         "lang_to": config.get("lang_to") or "zh",
     }
+    temperature = translator.parse_temperature(config.get("llm_temperature"))
+    if temperature is not None:
+        identity["temperature"] = temperature
     if source_dir:
         identity["ocr_revision"] = hashlib.sha256(source).hexdigest()
     if force:
@@ -217,6 +221,8 @@ def create_translation(doc_dir: Path, config: dict, cache: translator.TranslateC
         # there, so translate_batch handles items-only lists itself.
         wanted = [b["id"] for b in data.get("blocks", [])
                   if b.get("type") in translator.TRANSLATABLE_TYPES and translator._block_text(b)]
+        if not wanted and data.get("document", {}).get("parser", {}).get("name") == "pymupdf-layout":
+            raise ValueError("直接解析结果没有可翻译的文字。请对扫描页使用本地或云端 OCR。")
         if force:
             class FreshCache:
                 # A cleared translation starts a new namespace, but retries of
@@ -227,7 +233,7 @@ def create_translation(doc_dir: Path, config: dict, cache: translator.TranslateC
                     cache.put("revision:" + identity["revision"] + ":" + key, value)
             result = translator.translate_batch(input_dir, wanted, config, FreshCache())["results"]
         elif cache_only:
-            def offline_only(*_args):
+            def offline_only(*_args, **_kwargs):
                 raise ValueError("旧译文缓存不完整，无法只升级显示；原译文已保留")
             result = translator.translate_batch(input_dir, wanted, config, cache, http_post=offline_only)["results"]
         else:

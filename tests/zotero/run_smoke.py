@@ -31,8 +31,16 @@ def main():
     parser.add_argument("--quit-backend", choices=["local", "wsl"], default="local")
     parser.add_argument("--ocr-mode", choices=["official", "rapidocr"], default="official")
     parser.add_argument("--cloud-package", type=Path)
+    parser.add_argument("--unified-package", type=Path, help="Test the packaged layout and local OCR routes in an isolated profile")
+    parser.add_argument("--unified-cloud-token-file", type=Path, help="Optional credentials file for real AI Studio OCR of one fixture page")
     args = parser.parse_args()
-    run = ROOT / "workspace" / "zotero-smoke" / time.strftime("%Y%m%d-%H%M%S")
+    if args.cloud_package and args.unified_package:
+        parser.error("Choose one test package")
+    if args.unified_cloud_token_file and not args.unified_package:
+        parser.error("--unified-cloud-token-file requires --unified-package")
+    # Keep the disposable Windows path short enough for MathJax asset names.
+    smoke_root = ROOT.parent / "zsmoke" if args.unified_package else ROOT / "workspace" / "zotero-smoke"
+    run = smoke_root / time.strftime("%Y%m%d-%H%M%S")
     profile = run / "profile"
     extensions = profile / "extensions"
     extensions.mkdir(parents=True)
@@ -42,6 +50,16 @@ def main():
     cloud_token_file = profile / "paperloom" / "cloud-ocr-token"
     cloud_appdata = run / "cloud-appdata"
     cloud_pdf = run / "cloud-fixture.pdf"
+    if args.unified_package:
+        args.unified_package = args.unified_package.resolve()
+        subprocess.run([str(args.unified_package / "python/python.exe"), "-X", "utf8",
+                        str(args.unified_package / "install.py")], check=True,
+                       env={**os.environ, "LOCALAPPDATA": str(cloud_appdata)})
+        if args.unified_cloud_token_file:
+            import pymupdf
+            with pymupdf.open(ROOT / "tests/fixtures/sample_native.pdf") as original, pymupdf.open() as sample:
+                sample.insert_pdf(original, from_page=0, to_page=0)
+                sample.save(cloud_pdf)
     if args.cloud_package:
         import fitz
         cloud_token = os.environ.pop("PADDLEOCR_ACCESS_TOKEN", "")
@@ -184,13 +202,19 @@ def main():
     app.state.jobs.orchestrator.convert = convert
     original = translator.translate_batch
 
-    def fake_http(*args):
+    def fake_http(*args, **_kwargs):
         calls["llm"] += 1
         prompt = args[3][0]["content"]
         inputs = translator.parse_batch_output(prompt.split("\n请把每条")[0], 10000)
         return "\n".join(f"[ID:{i}] 中文译文：{text}" for i, text in inputs.items())
 
     translator.translate_batch = lambda *a, **kw: original(*a, **({"http_post": fake_http} | kw))
+    if args.unified_package:
+        @app.post("/fixture/v1/chat/completions")
+        def fixture_llm(body: dict):
+            assert "temperature" not in body
+            text = fake_http(None, None, None, body["messages"])
+            return {"choices": [{"message": {"content": text}}]}
     (settings.workspace / "settings.json").write_text(json.dumps({
         "llm_base_url": "http://127.0.0.1:1/v1", "llm_model": "smoke", "lang_to": "zh"
     }))
@@ -418,6 +442,17 @@ def main():
                 if name == "bootstrap.js":
                     content += ("\n" + constants + "\n" + harness).encode()
                 dest.writestr(name, content)
+    if args.unified_package:
+        source_xpi = next(args.unified_package.glob("*.xpi"))
+        harness = Path(__file__).with_name("unified_smoke.js").read_text(encoding="utf-8")
+        constants += f"\nvar unifiedFixtureURL = {json.dumps(f'http://127.0.0.1:{port}')};"
+        constants += f"\nvar unifiedCloudPDF = {json.dumps(str(cloud_pdf) if args.unified_cloud_token_file else None)};"
+        with zipfile.ZipFile(source_xpi) as source, zipfile.ZipFile(test_plugin, "w") as dest:
+            for name in source.namelist():
+                content = source.read(name)
+                if name == "bootstrap.js":
+                    content += ("\n" + constants + "\n" + harness).encode()
+                dest.writestr(name, content)
     log_path = run / "zotero.log"
     print(f"Isolated Zotero smoke test: {run}", flush=True)
     with log_path.open("w", encoding="utf-8") as log:
@@ -427,11 +462,14 @@ def main():
             stdout=log, stderr=subprocess.STDOUT,
             env={**os.environ, "MOZ_HEADLESS": "1", "TEMP": str(isolated_temp), "TMP": str(isolated_temp),
                  "MOZ_HEADLESS_WIDTH": "1800", "MOZ_HEADLESS_HEIGHT": "1100",
-                 **({"LOCALAPPDATA":str(cloud_appdata)} if args.cloud_package else {}),
+                 **({"LOCALAPPDATA":str(cloud_appdata)} if args.cloud_package or args.unified_package else {}),
                  "PAPERBRIDGE_WORKSPACE": str(run / "managed-workspace"), "PAPERLOOM_LAUNCHER_LOCK": str(ROOT / "scripts" / "launcher.lock" if args.quit_backend == "wsl" else run / "launcher.lock")},
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
         try:
+            if args.unified_cloud_token_file:
+                cloud_token_file.parent.mkdir(exist_ok=True)
+                shutil.copyfile(args.unified_cloud_token_file, cloud_token_file)
             # Install through the real AddonManager so manifest validation errors
             # are returned directly instead of silently dropping sideloaded XPIs.
             remote = None

@@ -1,5 +1,7 @@
 import { isSavedReader, actionPayload, READER_PROTOCOL } from "./reader-protocol.mjs";
 import { enhance, exportPage } from "./paper-layout.mjs";
+import { ReaderInteractions } from "./reader-interactions.mjs";
+import { ReverseHighlight } from "./reverse-highlight.mjs";
 
 export class PaperLoomReaderChild extends JSWindowActorChild {
   handleEvent(event) {
@@ -35,7 +37,7 @@ export class PaperLoomReaderChild extends JSWindowActorChild {
         if (this.destroyed || this.document !== document) return { available: false };
         const loaded = await this.documentReady(document);
         if (this.destroyed || this.document !== document || !document.body) return { available: false };
-        if (!loaded) throw new Error("阅读页面加载超时，请重新打开当前 OCR／译文页面");
+        if (!loaded) throw new Error("阅读页面加载超时，请重新打开当前 解析／译文页面");
         try { enhance(document); } catch (error) { this.report(error); }
         const config = await this.sendQuery("ready", { protocol: READER_PROTOCOL });
         if (this.destroyed || this.document !== document || !document.body) return { available: false };
@@ -129,6 +131,8 @@ export class PaperLoomReaderChild extends JSWindowActorChild {
   report(error) { console.error("[PaperLoom saved-reader bridge]", error?.message || String(error)); }
   didDestroy() {
     this.destroyed = true;
+    this.interactions?.destroy();
+    this.reverseHighlight?.destroy();
     try { this.cancelDocumentReady?.(); this.cancelRetry(); } catch (_) { /* The content global was already disposed. */ }
   }
   result(value, document = this.document) {
@@ -150,6 +154,15 @@ export class PaperLoomReaderChild extends JSWindowActorChild {
     if (style.textContent !== css) style.textContent = css;
   }
   applyView(data) {
+    this.document.body.dataset.paperEmbedded="true";
+    if (!this.interactions || this.interactions.doc !== this.document || this.interactions.destroyed) {
+      this.interactions?.destroy(); this.interactions = new ReaderInteractions(this);
+    }
+    this.interactions.configure(data);
+    if (!this.reverseHighlight || this.reverseHighlight.doc !== this.document) {
+      this.reverseHighlight?.destroy(); this.reverseHighlight = new ReverseHighlight(this);
+    }
+    if (!data.split) this.reverseHighlight.clear();
     this.document.body.dataset.translationMode = data.mode === "translation" ? "translation" : "bilingual";
     this.document.body.classList.toggle("pl-focus", !!data.focus);
     const appearance = data.appearance || {};
@@ -173,6 +186,11 @@ export class PaperLoomReaderChild extends JSWindowActorChild {
   receiveMessage(message) {
     if (message.name === "reader-connect") { this.attempts = 0; return this.connect(); }
     if (!this.document.body) return null;
+    if (message.name === "table-data") {
+      const excel=this.contentWindow.wrappedJSObject.PaperLoomExcel;
+      return Array.from(this.document.querySelectorAll(".pl-target table")).map((table,index)=>({name:`表${index+1}`,rows:excel.tableRows(table)}));
+    }
+    if (message.name === "highlight-translation") return this.reverseHighlight?.receive(message.data) || false;
     if (message.name === "paper-export") return exportPage(this.document, message.data?.assets || "assets");
     if (message.name === "editor-command") {
       const editor = this.contentWindow.wrappedJSObject.PaperLoomEditor;
@@ -189,14 +207,18 @@ export class PaperLoomReaderChild extends JSWindowActorChild {
       return { schema: Number(this.document.body.dataset.exportSchema || 0) };
     }
     if (message.name === "block-source") return this.source(Array.from(this.document.querySelectorAll('.pl-block')).find(node=>node.dataset.blockId===message.data.id));
+    if (message.name === "block-index") return Array.from(this.document.querySelectorAll('.pl-block')).map(node => {
+      const {block,page,bbox,regions}=this.source(node); return {block,page,bbox,regions};
+    });
+    if (message.name === "sync-scroll-to") return this.interactions?.scrollTo(message.data) || false;
     if (message.name === "page-blocks") return Array.from(this.document.querySelectorAll('.pl-block'))
-      .filter(node=>Number(node.dataset.page)<=message.data.page&&Number(node.dataset.page)>=message.data.page-1).map(node=>this.source(node));
+      .map(node=>this.source(node)).filter(block=>block.page===message.data.page || block.regions?.some(region=>region.page===message.data.page));
     if (message.name === "select-block" || message.name === "locate-point") {
       const candidates = Array.from(this.document.querySelectorAll(".pl-block"));
       const node = message.name === "select-block" ? candidates.find(node => node.dataset.blockId === message.data.id) : candidates.filter(node => {
-        if (Number(node.dataset.page) !== Number(message.data.page)) return false;
-        const box = JSON.parse(node.dataset.bbox || "[]");
-        return box.length === 4 && message.data.x >= box[0] && message.data.x <= box[2] && message.data.y >= box[1] && message.data.y <= box[3];
+        const block=this.source(node), regions=block.regions?.length ? block.regions : [{page:block.page,bbox:block.bbox}];
+        return regions.some(({page,bbox:box})=>Number(page)===Number(message.data.page) && box?.length===4
+          && message.data.x>=box[0] && message.data.x<=box[2] && message.data.y>=box[1] && message.data.y<=box[3]);
       }).sort((a,b)=>{
         const area = node => { const box=JSON.parse(node.dataset.bbox); return (box[2]-box[0])*(box[3]-box[1]); };
         return area(a)-area(b);
@@ -204,6 +226,7 @@ export class PaperLoomReaderChild extends JSWindowActorChild {
       if (!node) return false;
       this.document.querySelectorAll(".pl-block.selected").forEach(node => node.classList.remove("selected"));
       node.classList.add("selected"); this.document.body.classList.add("has-selection");
+      this.interactions?.suppressScroll();
       node.scrollIntoView({ block: "center", behavior: "instant" });
       return this.source(node);
     }

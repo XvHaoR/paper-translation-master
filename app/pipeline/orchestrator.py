@@ -198,7 +198,7 @@ class Orchestrator:
         progress: ProgressFn | None = None,
     ) -> ConversionResult:
         opts = options or ConvertOptions()
-        if opts.ocr_mode not in {"official", "rapidocr", "auto", "native", "full", "hybrid"}:
+        if opts.ocr_mode not in {"official", "rapidocr", "auto", "native", "full", "hybrid", "layout", "cloud"}:
             return ConversionResult(errors=["不支持的 OCR 模式"])
         t0 = time.time()
         pdf_path = Path(pdf_path)
@@ -218,22 +218,31 @@ class Orchestrator:
         if not pre.ok:
             result.errors += pre.errors
             return result
-        result.document_id = pre.pdf_hash
+        mode = opts.ocr_mode
+        result.document_id = f"{mode}-{pre.pdf_hash}" if mode in {"layout", "cloud"} else pre.pdf_hash
         doc_dir = self.workspace / "documents" / result.document_id
         ir_path = doc_dir / "document.json"
         index_path = doc_dir / "index.html"
+        pages = _parse_page_range(opts.pages, pre.page_count)
+        if not pages:
+            result.errors.append("页码范围未包含有效页面")
+            return result
 
         # 2. 缓存命中（须匹配解析器缓存版本，算法升级后旧缓存自动失效）
         if (
             not opts.force
-            and opts.ocr_mode in ("official", "auto")
+            and mode in ("official", "auto", "layout", "cloud")
             and ir_path.is_file()
             and index_path.is_file()
         ):
             try:
                 ir = DocumentIR.model_validate_json(ir_path.read_text(encoding="utf-8"))
-                if (ir.document.parser.get("cache_version") != self._cache_version()
-                        or ir.document.parser.get("settings", {}).get("ocr_mode") != opts.ocr_mode):
+                settings = ir.document.parser.get("settings", {})
+                version = self._mode_cache_version(mode)
+                if (ir.document.parser.get("cache_version") != version
+                        or settings.get("ocr_mode") != mode
+                        or (mode == "layout" and ir.document.parser.get("auto_parser_version") != version)
+                        or (mode in {"layout", "cloud"} and settings.get("pages") != pages)):
                     logger.info("解析器缓存版本升级，旧文档重新解析")
                 else:
                     result.ok = True
@@ -248,7 +257,6 @@ class Orchestrator:
             except Exception as e:  # noqa: BLE001
                 logger.warning("缓存文档损坏，重新生成：%s", e)
 
-        pages = _parse_page_range(opts.pages, pre.page_count)
         doc_dir.mkdir(parents=True, exist_ok=True)
         (doc_dir / "assets").mkdir(exist_ok=True)
         (doc_dir / "assets" / "crops").mkdir(exist_ok=True)
@@ -262,12 +270,15 @@ class Orchestrator:
             shutil.copy2(pdf_path, original_pdf)
         self._prepare_static_assets(doc_dir)
 
+        if mode == "layout":
+            return self._convert_layout(pdf_path, pages, doc_dir, result, report, t0)
+
         if opts.ocr_mode == "rapidocr":
             return self._convert_rapid(pdf_path, pre, pages, opts, doc_dir, result, report, t0)
 
         # 识别器可用性
         recognizer = self._resolve_recognizer(opts)
-        if opts.ocr_mode == "official":
+        if mode in {"official", "cloud"}:
             return self._convert_official(
                 pdf_path=pdf_path,
                 pre=pre,
@@ -277,6 +288,7 @@ class Orchestrator:
                 result=result,
                 report=report,
                 started_at=t0,
+                mode=mode,
             )
         if recognizer is None:
             if opts.ocr_mode in ("full", "hybrid"):
@@ -447,6 +459,46 @@ class Orchestrator:
         result.duration_ms = int((time.time() - started_at) * 1000)
         return result
 
+    def _mode_cache_version(self, mode: str) -> str:
+        if mode == "layout":
+            from app.parsing.reading_flow import PARSER_VERSION
+            return PARSER_VERSION
+        return self._cache_version()
+
+    def _convert_layout(self, pdf_path, pages, doc_dir, result, report, started_at):
+        import pymupdf
+
+        from app.parsing.auto_pdf import parse_document
+        from app.rendering.markdown_exporter import render_markdown
+        from app.services.offline_reader import copy_runtime
+        from app.services.translation_export import reader_page
+
+        if not hasattr(pymupdf.Document, "to_json"):
+            result.errors.append("直接解析需要融合版自带的 PyMuPDF 版面分析环境。请重新运行融合版安装脚本。")
+            return result
+        try:
+            ir, warnings = parse_document(pdf_path, doc_dir, result.document_id, pages, report=report)
+            ir.document.parser["cache_version"] = self._mode_cache_version("layout")
+            if not ir.blocks:
+                result.errors.append("PDF 没有可显示的内容")
+                return result
+            markdown = render_markdown(ir.blocks)
+            copy_runtime(doc_dir)
+            _atomic_write_text(doc_dir / "index.html", reader_page(ir.document.title, "en", markdown, blocks=ir.blocks))
+            _atomic_write_text(doc_dir / "export.md", markdown)
+            _atomic_write_text(doc_dir / "document.json", ir.model_dump_json(indent=2))
+        except Exception as error:
+            logger.exception("PDF 文字层解析失败")
+            result.errors.append(f"PDF 文字层解析失败：{error}")
+            return result
+        result.ir, result.doc_dir = ir, doc_dir
+        result.ok = True
+        result.warnings.extend(warnings)
+        result.status = "needs_review" if any(block.quality.needs_review for block in ir.blocks) else "ready"
+        result.duration_ms = int((time.time() - started_at) * 1000)
+        report("done", message="PDF 文字层解析完成")
+        return result
+
     def _convert_official(
         self,
         *,
@@ -458,6 +510,7 @@ class Orchestrator:
         result: ConversionResult,
         report: ProgressFn,
         started_at: float,
+        mode: str = "official",
     ) -> ConversionResult:
         """PaddleOCR 官方 PDF->Markdown 直通路径。
 
@@ -499,7 +552,7 @@ class Orchestrator:
                     "name": "paddleocr-vl-cloud" if getattr(recognizer, "supports_page_selection", False) else "paddleocr-vl-official",
                     "version": "PaddleOCRVL()",
                     "cache_version": self._cache_version(),
-                    "settings": {"ocr_mode": "official"},
+                    "settings": {"ocr_mode": mode, **({"pages": pages} if mode == "cloud" else {})},
                 },
                 created_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
             )
@@ -545,7 +598,7 @@ class Orchestrator:
                     content = BlockContent(html=text)
                 elif btype is BlockType.FIGURE:
                     # 图片本身由官方 Markdown 的 imgs/ 目录引用，IR 中只保留可追踪占位。
-                    content = BlockContent(image_path=f"assets/official/page-{official_page.page:03d}/imgs/")
+                    content = BlockContent(text=text or None, image_path=f"assets/official/page-{official_page.page:03d}/imgs/")
                 else:
                     content = BlockContent(text=text or " ")
 
@@ -577,6 +630,7 @@ class Orchestrator:
 
         from app.services.paper_semantics import prepare_blocks
         ir.blocks = prepare_blocks(ir.blocks, ir.model_dump(mode="json"), doc_dir, raw_outputs)
+        recovered_pages = {block.page for block in ir.blocks if block.layout_label == "ocr_region_fallback"}
         from app.config import get_settings
         if get_settings().html_quality_retries and callable(getattr(recognizer,"recognize_region",None)):
             from app.parsing.region_quality import repair_formula_regions
@@ -584,9 +638,17 @@ class Orchestrator:
                 recognizer, doc_dir / "raw" / "region-retries",
                 lambda n,total,bid: report("quality_check",message=f"局部复核公式 {n}/{total} · {bid}"))
             _atomic_write_text(doc_dir / "raw" / "region-repairs.json",json.dumps(repairs,ensure_ascii=False,indent=2))
-        ir.document.parser["semantic_repair"] = "html-0322-v3"
+        ir.document.parser["semantic_repair"] = "html-0322-v4"
         report("rendering_html", message="保存官方输出及经过验证的 HTML 内容块")
         renderer = HtmlRenderer()
+        if recovered_pages:
+            from app.rendering.markdown_exporter import render_markdown
+            from app.services.figure_export import export_figures
+            repaired = export_figures([b for b in ir.blocks if b.page in recovered_pages],
+                                      ir.model_dump(mode="json"), doc_dir, doc_dir)
+            page_markdowns = [(page, render_markdown([b for b in repaired if b.page == page])
+                               if page in recovered_pages else markdown)
+                              for page, markdown in page_markdowns]
         _atomic_write_text(
             doc_dir / "index.html",
             renderer.render_official_document(ir, doc_dir, page_markdowns),
@@ -721,7 +783,7 @@ class Orchestrator:
         # floating-point decoding details.  Do not silently reuse a document
         # generated by the other execution backend.
         backend = os.environ.get("PAPERBRIDGE_OFFICIAL_ACCELERATOR", "").strip()
-        return f"{get_settings().parser_cache_version}:{backend or 'local'}:html-semantics-v3"
+        return f"{get_settings().parser_cache_version}:{backend or 'local'}:html-semantics-v4"
 
     def _reading_order_mode(self) -> str:
         from app.config import get_settings
@@ -734,6 +796,8 @@ class Orchestrator:
         if self.recognizer is not None:
             return self.recognizer
         from app.parsing.paddle_cloud import cloud_enabled, PaddleCloudRecognizer
+        if opts.ocr_mode == "cloud":
+            return PaddleCloudRecognizer()
         if cloud_enabled():
             return PaddleCloudRecognizer() if opts.ocr_mode == "official" else None
         device = (opts.ocr_device or "auto").strip().lower()

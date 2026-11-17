@@ -28,6 +28,31 @@ const Zotero={Promise:{delay:async()=>{}},getMainWindow:()=>null};
     assert "runtime-test-complete" in process.stdout, "An awaited task never completed"
 
 
+def test_attachment_grouping_deduplicates_requests_and_rejects_ambiguous_links():
+    run_js(["attachment-groups"], """
+const groups = PaperLoom.AttachmentGroups;
+PaperLoom.Store.key = source => `${source.libraryID}/${source.key}`;
+PaperLoom.tags = item => item.tags;
+const source = {id: 1, libraryID: 4, key: "SOURCE42", isAttachment: () => true, attachmentContentType: "application/pdf"};
+const result = {...source, id: 2, attachmentContentType: "text/html", tags: ["paperloom:ocr", "paperloom:pdf:SOURCE42"]};
+assert.equal(groups.sourceKey(result), source.key);
+assert.equal(groups.sourceKey({...result, tags: [...result.tags, "paperloom:pdf:DIFFER42"]}), null);
+assert.equal(groups.sourceKey({...source, tags: result.tags}), null);
+assert.equal(groups.sourceKey({...result, deleted: true}), null);
+let calls = 0;
+groups.group = async id => {
+  calls++;
+  if (calls === 1) throw new Error("simulated database failure");
+  return id + 100;
+};
+await assert.rejects(groups.ensure(source), /simulated database failure/);
+assert.deepEqual(await Promise.all([groups.ensure(source), groups.ensure(source)]), [101, 101]);
+assert.equal(calls, 2);
+await Promise.all([groups.ensure(source), groups.ensure({...source, id: 3, libraryID: 5})]);
+assert.equal(calls, 4);
+""")
+
+
 def test_completed_paper_translates_while_next_ocr_is_still_running():
     run_js(["tasks"], """
 const tasks=PaperLoom.Tasks, a={id:1}, b={id:2};
@@ -244,6 +269,24 @@ gpu=true;delete prefs.pythonPath;delete prefs.backend;
 const defaultGPU=await PaperLoom.Runtime.resolve();assert.equal(defaultGPU.projectRoot,'/gpu');
 prefs.projectRoot='/cpu';prefs.pythonPath='/old-gpu-python';prefs.backend='wsl';
 const explicitCPU=await PaperLoom.Runtime.resolve();assert.equal(explicitCPU.projectRoot,'/cpu');assert.equal(explicitCPU.pythonPath,'/cpu/python');
+""")
+
+
+def test_unified_local_wsl_reuses_installed_python_with_a_compatible_runtime():
+    run_js(["runtime"], """
+PaperLoom.config = {unified: true};
+Zotero.isWin = true;
+globalThis.Services = {env: {get: () => '/local'}};
+globalThis.PathUtils = {join: (...parts) => parts.join('/')};
+const runtime = PaperLoom.Runtime;
+const gpu = {backend:'wsl', projectRoot:'/legacy/service', pythonPath:'/legacy/python', descriptor:'/legacy/runtime.json'};
+const cpu = {backend:'local', projectRoot:'/cpu/service', pythonPath:'/cpu/python'};
+runtime.named = async name => ({PaperTranslationMaster:gpu, PaperTranslationMasterRapidOCR:cpu,
+  PaperTranslationMasterUnified:{backend:'local', projectRoot:'/unified/service', pythonPath:'/unified/python'}})[name];
+assert.deepEqual(await runtime.localOCR('auto'), {...gpu, projectRoot:'/unified/service',
+  workspace:'/local/PaperTranslationMasterUnified/local-wsl', ocrMode:'official', pinned:true});
+assert.deepEqual(await runtime.localOCR('cpu'), {...cpu, ocrMode:'rapidocr', pinned:true});
+assert.equal(gpu.projectRoot, '/legacy/service');
 """)
 
 

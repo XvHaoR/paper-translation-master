@@ -850,6 +850,7 @@
     '<label>服务地址<br><input id="tr-s-base" placeholder="https://api.deepseek.com/v1 或 http://localhost:11434/v1"></label>' +
     '<label>API Key<br><input id="tr-s-key" type="password" placeholder="可留空(如 Ollama)"></label>' +
     '<label>模型名<br><input id="tr-s-model" placeholder="deepseek-chat"></label>' +
+    '<label>Temperature<br><input id="tr-s-temperature" inputmode="decimal" placeholder="留空使用模型默认值"></label>' +
     '<label>并发 <input id="tr-s-conc" type="number" min="1" max="16" value="4" style="width:56px"></label>' +
     '<div class="tr-actions" style="margin-top:6px">' +
     '<button id="tr-s-save">保存</button><button id="tr-s-test">测试连接</button><span id="tr-s-status" class="tr-s-status"></span>' +
@@ -863,6 +864,7 @@
       $("#tr-s-base").value = s.llm_base_url || "";
       $("#tr-s-key").value = s.llm_api_key || "";
       $("#tr-s-model").value = s.llm_model || "";
+      $("#tr-s-temperature").value = s.llm_temperature ?? "";
       $("#tr-s-conc").value = s.llm_concurrency || 4;
       $("#tr-lang").value = s.lang_to || "zh";
     }).catch(function () {
@@ -880,6 +882,7 @@
       llm_base_url: $("#tr-s-base").value.trim(),
       llm_api_key: $("#tr-s-key").value.trim(),
       llm_model: $("#tr-s-model").value.trim(),
+      llm_temperature: $("#tr-s-temperature").value.trim(),
       llm_concurrency: parseInt($("#tr-s-conc").value, 10) || 4,
       lang_to: $("#tr-lang").value.trim() || "zh"
     };
@@ -903,7 +906,7 @@
     try {
       var resp = await fetch("/api/settings/test", {method: "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({llm_base_url: $("#tr-s-base").value.trim(), llm_api_key: $("#tr-s-key").value.trim(),
-          llm_model: $("#tr-s-model").value.trim()})});
+          llm_model: $("#tr-s-model").value.trim(), llm_temperature: $("#tr-s-temperature").value.trim()})});
       var data = await resp.json();
       if (!resp.ok) throw new Error(data.detail || "连接失败");
       st.textContent = "连接成功：" + data.text; st.style.color = "";

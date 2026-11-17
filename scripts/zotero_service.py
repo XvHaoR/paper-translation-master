@@ -41,13 +41,13 @@ def write_state(path: Path, instance: str, phase: str, message: str, **extra) ->
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             json.dump({"instance": instance, "phase": phase, "message": message,
                        "updated_at": time.time(), **extra}, stream, ensure_ascii=False)
-        for attempt in range(10):
+        for attempt in range(50):
             try:
                 temporary.replace(path)
                 break
             except PermissionError:
                 # Windows readers may briefly open without delete sharing.
-                if attempt == 9:
+                if attempt == 49:
                     raise
                 time.sleep(.02)
     finally:
@@ -74,6 +74,7 @@ def compatible_service(url: str, ocr_mode: str = "official", owner: str | None =
                     and bool(status.get("cloud_ocr")) == cloud
                     and (not status.get("managed_owner") or status["managed_owner"] == owner)
                     and (ocr_mode != "rapidocr" or "rapidocr" in status.get("ocr_modes", []))
+                    and (ocr_mode != "layout" or "unified-recognition" in status.get("features", []))
                     and {"force-ocr", "cancel-ocr", "edited-source"}.issubset(status.get("features", [])))
     except Exception:
         return False
@@ -94,10 +95,11 @@ def available_port(preferred: int) -> int:
     raise RuntimeError("无法分配本机服务端口")
 
 
-def acquire_lock(root: Path):
+def acquire_lock(root: Path, workspace: str | None = None):
     # An isolated test workspace can supply its own lock without contending
     # with the user's live project service or sharing any model processes.
-    path = Path(os.environ.get("PAPERLOOM_LAUNCHER_LOCK", root / "scripts" / "launcher.lock"))
+    lock_dir = Path(workspace).resolve() if workspace else root / "scripts"
+    path = Path(os.environ.get("PAPERLOOM_LAUNCHER_LOCK", lock_dir / "launcher.lock"))
     path.parent.mkdir(parents=True, exist_ok=True)
     lock = path.open("a+b")
     lock.seek(0)
@@ -197,7 +199,7 @@ def run(args) -> int:
             return 0
         if getattr(args, "parent_pid", None):
             threading.Thread(target=watch_owner, name="zotero-owner-watch", daemon=True).start()
-        lock = acquire_lock(root)
+        lock = acquire_lock(root, args.workspace) if args.backend == "wsl" else acquire_lock(root)
         port = available_port(port)
         url = f"http://127.0.0.1:{port}"
         if port != args.port:
@@ -209,7 +211,14 @@ def run(args) -> int:
                 env.pop(name, None)
         env.update(runtime_environment(getattr(args, "runtime_config", None)))
         env["PAPERBRIDGE_ZOTERO_OWNER"] = instance
-        if args.backend == "cloud":
+        if requested_mode == "layout":
+            env["PAPERBRIDGE_UNIFIED"] = "1"
+            env["PAPERBRIDGE_OCR_MODE"] = "layout"
+            env.pop("PAPERBRIDGE_OFFICIAL_ACCELERATOR", None)
+            token_file = getattr(args, "cloud_token_file", None)
+            if token_file:
+                env["PAPERBRIDGE_CLOUD_TOKEN_FILE"] = str(Path(token_file).resolve())
+        elif args.backend == "cloud":
             env["PAPERBRIDGE_OFFICIAL_ACCELERATOR"] = "aistudio-vl16"
             token_file = getattr(args, "cloud_token_file", None)
             if token_file:
@@ -313,7 +322,7 @@ if __name__ == "__main__":
     parser.add_argument("--workspace")
     parser.add_argument("--cloud-token-file")
     parser.add_argument("--runtime-config", help="Installer runtime descriptor")
-    parser.add_argument("--ocr-mode", choices=["official", "rapidocr"], default="official")
+    parser.add_argument("--ocr-mode", choices=["official", "rapidocr", "layout"], default="official")
     parser.add_argument("--parent-pid", type=int, help="Owning Zotero main process")
     arguments = parser.parse_args()
     if not 1 <= arguments.port <= 65535:

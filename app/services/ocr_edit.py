@@ -122,6 +122,7 @@ def active_blocks(payload: dict, changes: dict, insertions: list) -> list[Block]
         result.append(block)
     for order, block in enumerate(result):
         block.order = order
+        block.reading_order = order
     return result
 
 
@@ -134,9 +135,11 @@ def write_editor_files(payload: dict, blocks: list[Block], output: Path) -> dict
     (output / "source.json").write_bytes(source)
     with zipfile.ZipFile(output / "source.zip", "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("document.json", source)
-        for image in sorted((output / "assets" / "media").glob("*")):
-            if image.is_file():
-                archive.write(image, image.relative_to(output).as_posix())
+        for relative in sorted({block.content.image_path for block in blocks if block.content.image_path}):
+            image = (output / relative).resolve()
+            if not image.is_relative_to(output.resolve()) or not image.is_file():
+                raise ValueError("识别快照引用的图片不存在")
+            archive.write(image, image.relative_to(output.resolve()).as_posix())
     return {"source_revision": revision}
 
 
@@ -150,9 +153,13 @@ def prepare_or_save(saved: Path, output: Path, workspace: Path, request: dict) -
     output.mkdir(parents=True, exist_ok=False)
     if (saved / "editor.json").is_file():
         payload = json.loads((saved / "editor.json").read_text(encoding="utf-8"))
-        media = saved / "assets" / "media"
-        if media.is_dir():
-            shutil.copytree(media, output / "assets" / "media")
+        for relative in {block.get("content", {}).get("image_path") for block in payload["blocks"]} - {None, ""}:
+            source = (saved / relative).resolve()
+            if not source.is_relative_to(saved.resolve()) or not source.is_file():
+                raise ValueError("识别附件引用的图片不存在")
+            target = output / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
     else:
         # Migrate old saved pages only when the cached source is exactly their
         # original IR version. Never silently substitute a later OCR generation.
@@ -196,7 +203,7 @@ def import_source(archive_path: Path, destination: Path, expected: str) -> None:
         if len(set(names)) != len(names) or len(entries) > 5000 or sum(e.file_size for e in entries) > 200 * 1024 * 1024:
             raise ValueError("编辑文档包过大或存在重复路径")
         for entry in entries:
-            if entry.filename != "document.json" and not re.fullmatch(r"assets/media/[a-f0-9]{24}\.(png|jpg|jpeg|webp|gif)", entry.filename):
+            if entry.filename != "document.json" and not re.fullmatch(r"assets/(?:media/[a-f0-9]{24}|crops/[A-Za-z0-9_-]{1,160})\.(png|jpg|jpeg|webp|gif)", entry.filename):
                 raise ValueError("编辑包包含不安全的路径")
         if archive.getinfo("document.json").file_size > 20 * 1024 * 1024:
             raise ValueError("编辑文档过大")
@@ -208,7 +215,7 @@ def import_source(archive_path: Path, destination: Path, expected: str) -> None:
         if not data.get("editor_prepared") or len(ir.blocks) > 20000 or len({b.id for b in ir.blocks}) != len(ir.blocks):
             raise ValueError("编辑文档结构无效")
         for block in ir.blocks:
-            if block.type is BlockType.FIGURE and block.content.image_path not in names:
+            if block.content.image_path and block.content.image_path not in names:
                 raise ValueError("编辑包缺少引用的图片")
         destination.mkdir(parents=True, exist_ok=True)
         for entry in entries:

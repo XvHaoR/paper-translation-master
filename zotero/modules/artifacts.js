@@ -81,7 +81,7 @@
         if (!await IOUtils.exists(PathUtils.join(destination, name))) throw new Error(`文档包缺少 ${name}`);
       }
     },
-    async download(source, kind, hash, artifact, language, check = () => {}) {
+    async download(source, kind, hash, artifact, language, check = () => {}, serviceURL) {
       if (!PL.alive) throw new Error("处理已停止");
       const temporary = Zotero.getTempDirectory();
       temporary.append("paperloom");
@@ -91,7 +91,7 @@
         const expected = `/api/documents/${encodeURIComponent(artifact.document_id)}/${route}/${artifact.id}/bundle.zip`;
         if (!/^[a-f0-9]{24}$/.test(artifact.id) || artifact.download_url !== expected) throw new Error("服务返回了无效的文档地址");
         const zip = PathUtils.join(temporary.path, "bundle.zip");
-        await Zotero.HTTP.download(PL.serviceURL() + expected, zip);
+        await Zotero.HTTP.download(PL.serviceURL(serviceURL ?? PL.Service?.url?.()) + expected, zip);
         const directory = PathUtils.join(temporary.path, "content");
         await this.extract(zip, directory, kind);
         if (!PL.alive) throw new Error("处理已停止；服务端结果已保留");
@@ -101,31 +101,27 @@
       finally { await IOUtils.remove(temporary.path, { recursive: true, ignoreAbsent: true }); }
     },
     async save(source, kind, hash, artifact, directory, language) {
-      const parentItemID = source.parentItemID || undefined;
-      const parent = parentItemID ? Zotero.Items.get(parentItemID) : source;
-      const title = `论文翻译大师 ${kind === "ocr" ? "OCR" : `译文 [${language}]`} — ${parent.getField("title") || source.key}`;
+      const mode = artifact.recognition_mode;
+      const label = PL.config?.unified && mode ? PL.Recognition.label(mode) : "OCR";
+      if (PL.config?.unified && mode) {
+        const file = PathUtils.join(directory, "manifest.json");
+        const manifest = await IOUtils.readJSON(file);
+        await IOUtils.writeJSON(file, {...manifest, recognition_mode:mode, local_engine:artifact.local_engine || null});
+      }
+      const { parent } = await PL.AttachmentGroups.ensure(source);
+      const parentItemID = parent.id;
+      const title = `论文翻译大师 ${kind === "ocr" ? label : `译文 [${language}]${mode ? " · " + label : ""}`} — ${parent.getField("title") || source.key}`;
       const created = [];
       try {
-        let reader;
-        if (parentItemID) {
-          reader = await Zotero.Attachments.importSnapshotFromFile({
-            file: PathUtils.join(directory, "index.html"), parentItemID, title,
-            contentType: "text/html", charset: "utf-8", singleFile: false, url: source.getField("url") || "",
-          });
-        }
-        else {
-          reader = await Zotero.Attachments.importFromFile({
-            file: PathUtils.join(directory, "index.html"), libraryID: source.libraryID,
-            title, contentType: "text/html", collections: source.getCollections(),
-          });
-        }
+        const reader = await Zotero.Attachments.importSnapshotFromFile({
+          file: PathUtils.join(directory, "index.html"), parentItemID, title,
+          contentType: "text/html", charset: "utf-8", singleFile: false, url: source.getField("url") || "",
+        });
         created.push(reader);
-        if (!parentItemID) await Zotero.File.copyDirectory(directory, Zotero.Attachments.getStorageDirectory(reader).path);
         if (kind === "translate") {
           const md = await Zotero.Attachments.importFromFile({
             file: PathUtils.join(directory, "translation.md"), parentItemID, libraryID: source.libraryID,
             title: `${title} (Markdown)`, contentType: "text/markdown",
-            ...(parentItemID ? {} : { collections: source.getCollections() }),
           });
           created.push(md);
           await Zotero.File.copyDirectory(PathUtils.join(directory, "assets"), PathUtils.join(Zotero.Attachments.getStorageDirectory(md).path, "assets"));
@@ -137,8 +133,11 @@
           item.addTag(item !== reader ? "paperloom:markdown" : kind === "ocr" ? "paperloom:ocr" : "paperloom:reader");
           await item.saveTx();
         }
-        const status = { state: "ready", message: "", attachmentID: reader.id, attachmentKey: reader.key,
+        const status = { state: "ready", message: artifact.needs_review ? "部分内容待核对，请查看识别结果" : "",
+          needsReview:!!artifact.needs_review, attachmentID: reader.id, attachmentKey: reader.key,
           hash, documentID: artifact.document_id, exportID: artifact.id,
+          recognitionMode:mode || null, localEngine:artifact.local_engine || null,
+          sourceRevision:kind === "ocr" ? artifact.source_revision || null : null,
           editRevision: kind === "ocr" && artifact.edited ? artifact.source_revision : null,
           ocrRevision: kind === "translate" ? artifact.ocr_revision || null : null };
         PL.Store.set(source, kind, status, language);
@@ -161,9 +160,11 @@
       picker.appendFilter("Markdown", "*.md");
       if ((await picker.show()) === picker.returnCancel) return;
       await IOUtils.copy(source, picker.file);
-      const media = PathUtils.join(directory, "assets", "media");
-      if (await IOUtils.exists(media)) {
-        const destination = PathUtils.join(PathUtils.parent(picker.file), "assets", "media");
+      const output = typeof picker.file === "string" ? picker.file : picker.file.path;
+      for (const folder of ["media", "crops"]) {
+        const media = PathUtils.join(directory, "assets", folder);
+        if (!await IOUtils.exists(media)) continue;
+        const destination = PathUtils.join(PathUtils.parent(output), "assets", folder);
         await IOUtils.makeDirectory(destination, { createAncestors: true, ignoreExisting: true });
         await Zotero.File.copyDirectory(media, destination);
       }

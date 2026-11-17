@@ -56,6 +56,11 @@ def build(*, portable: bool = False, output: Path | None = None,
                   "releaseURL": f"https://github.com/{release['repository']}/releases",
                   "releaseVersion": release["version"], "displayName": release["name"]}
         config["minimumExportSchema"] = release.get("minimumExportSchema", 7)
+        if release.get("unified"):
+            config["unified"] = True
+            # An upgrade requires the matching Windows runtime. Keep the release channel manual.
+            manifest["applications"]["zotero"]["update_url"] = (
+                f"https://github.com/{release['repository']}/releases/download/v{release['version']}/updates.json")
         if release.get("cloudPreview"):
             config.update(cloudPreview=True, defaultBackend="cloud")
             manifest["applications"]["zotero"]["update_url"] = f"https://github.com/{release['repository']}/releases/latest/download/cloud-updates.json"

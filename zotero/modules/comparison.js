@@ -8,12 +8,19 @@
       const doc = PL.PDFContext.current(state).doc;
       if (!doc || state.pdfDoc === doc) return;
       state.pdfDoc?.removeEventListener("click", state.pdfClick, true);
+      state.pdfDoc?.removeEventListener("pointerdown", state.pdfSelectionStart, true);
+      state.pdfDoc?.removeEventListener("keydown", state.pdfSelectionStart, true);
       state.pdfDoc = doc;
+      state.pdfSelectionStart=event=>{ if(event.type!=="keydown" || event.key==="Escape")PL.ReverseSelection.clear(state); };
+      doc.addEventListener("pointerdown",state.pdfSelectionStart,true);
+      doc.addEventListener("keydown",state.pdfSelectionStart,true);
       state.pdfClick = async event => {
         if (!PL.alive || state.mode !== "split" || !state.saved || state.pdfDoc !== doc
           || (event.button !== undefined && event.button !== 0)) return;
         const page = event.target.closest?.(".page");
         if (!page || doc.defaultView.getSelection()?.isCollapsed === false) return;
+        const view=PL.PDFContext.current(state).view;
+        if(view?.getSelectionPosition?.() || view?._selectionRanges?.some(range=>!range.collapsed)) return;
         const bounds = page.getBoundingClientRect();
         if (!(bounds.width > 0 && bounds.height > 0)) return;
         const point = { page: Number(page.dataset.pageNumber),
@@ -53,6 +60,9 @@
     unbind(state) {
       state.locationRequest = Symbol("disposed"); state.pdfClickRequest = Symbol("disposed");
       state.pdfDoc?.removeEventListener("click", state.pdfClick, true);
+      state.pdfDoc?.removeEventListener("pointerdown", state.pdfSelectionStart, true);
+      state.pdfDoc?.removeEventListener("keydown", state.pdfSelectionStart, true);
+      PL.ReverseSelection.clear(state);
       this.clear(state); state.pdfDoc = null; state.pdfClick = null;
     },
     async locate(state, data, navigate = true) {
@@ -66,9 +76,17 @@
       if (!current()) return false;
       const page = Number(data?.page), pageIndex = page - 1;
       if (!Number.isInteger(page) || page < 1 || page > context.pdf.numPages) throw new Error("该段落没有有效 PDF 页码");
-      const regions = await PL.PDFRegions.resolve(state, { ...data, page }, context.pdf.numPages);
+      let regions = await PL.PDFRegions.resolve(state, { ...data, page }, context.pdf.numPages);
+      let precision = "paragraph";
+      if (data.highlight === "selection" && data.selectionText) {
+        try {
+          const match = await PL.PDFSelection.resolve(context, data, regions);
+          if (match?.regions.length) { regions = match.regions; precision = "sentence"; }
+        } catch (error) { Zotero.logError(error); }
+      }
       if (!current()) return false;
       if (navigate) {
+        PL.ScrollSync.mutePDF(state);
         const rects = await PL.PDFRegions.rects(context, page, regions);
         if (!current()) return false;
         // A native navigation already in flight cannot be cancelled. Queue the
@@ -81,10 +99,24 @@
         await navigation;
       }
       if (!current()) return false;
+      if (navigate) PL.ScrollSync.mutePDF(state);
+      if (precision === "sentence") {
+        // Refine to rendered glyph ranges without altering the native selection.
+        for (let attempt=0; attempt<8 && current(); attempt++) {
+          const exact=PL.PDFSelection.refine(context,data.selectionText,regions);
+          if (exact) { regions=exact; break; }
+          if (attempt<7) await Zotero.Promise.delay(50);
+        }
+        if (!current()) return false;
+      }
       this.bind(state);
-      state.lastLocated = { block: data.block, page, bbox: PL.PDFRegions.box(data.bbox) || [], regions };
+      state.lastLocated = { block: data.block, page, bbox: PL.PDFRegions.box(data.bbox) || [], regions,
+        ...(data.highlight === "selection" ? {highlight:"selection",selectionText:data.selectionText,precision} : {}) };
       // Presentation failures must not discard a completed source navigation.
-      try { PL.PDFHighlight.render(state, context, regions); }
+      try {
+        if (data.highlight === "selection") PL.PDFHighlight.renderSelection(state, context, regions);
+        else PL.PDFHighlight.render(state, context, regions);
+      }
       catch (error) { Zotero.logError(error); }
       return state.lastLocated;
     },

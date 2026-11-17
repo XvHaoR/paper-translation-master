@@ -83,7 +83,8 @@ assert.deepEqual(notifications,[[null,'paperloom-reader-ready','12']]);
 for(const type of protocol.ACTION_TYPES){
   assert.equal(await parent.receiveMessage({name:'action',data:{id:7,type}}),'done');
 }
-assert.equal(actions.length,5);
+assert.deepEqual(actions.map(action=>action.type),
+  ['locate','copy-latex','excel','save-ocr-edits','translation-mode','reader-scroll','selection-locate','selection-clear']);
 assert.throws(()=>parent.receiveMessage({name:'action',data:{type:'execute'}}),/不支持/);
 frame.isConnected=false;
 assert.equal(parent.receiveMessage({name:'ready'}).available,false);

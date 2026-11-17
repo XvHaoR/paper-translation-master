@@ -27,7 +27,7 @@
       if (!bbox) return known;
       try {
         // SourceRegions owns text matching. A failed text lookup must not erase
-        // valid OCR coordinates, including separately detected column regions.
+        // valid 解析 coordinates, including separately detected column regions.
         const recovered = await PL.SourceRegions.resolve(state, { ...data, bbox,
           ...(known.length > 1 ? { regions: known } : {}) });
         return this.normalize([...known, ...(Array.isArray(recovered) ? recovered : [])], pages);

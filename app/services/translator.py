@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import threading
@@ -35,6 +36,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "llm_base_url": "",
     "llm_api_key": "",
     "llm_model": "",
+    "llm_temperature": None,
     "llm_concurrency": 8,
     "lang_to": "zh",
 }
@@ -43,9 +45,24 @@ _ENV_SETTINGS = {
     "llm_base_url": "PAPERBRIDGE_LLM_BASE_URL",
     "llm_api_key": "PAPERBRIDGE_LLM_API_KEY",
     "llm_model": "PAPERBRIDGE_LLM_MODEL",
+    "llm_temperature": "PAPERBRIDGE_LLM_TEMPERATURE",
     "llm_concurrency": "PAPERBRIDGE_LLM_CONCURRENCY",
     "lang_to": "PAPERBRIDGE_LANG_TO",
 }
+
+
+def parse_temperature(value: Any) -> float | None:
+    if value is None or isinstance(value, str) and not value.strip():
+        return None
+    if not isinstance(value, bool) and isinstance(value, (int, float, str)):
+        try:
+            number = float(value)
+        except (ValueError, OverflowError):
+            pass
+        else:
+            if math.isfinite(number) and number >= 0:
+                return number
+    raise ValueError("Temperature 必须是非负有限数字，留空使用模型默认值")
 
 
 def load_settings(workspace: Path) -> dict[str, Any]:
@@ -66,6 +83,10 @@ def load_settings(workspace: Path) -> dict[str, Any]:
         settings["llm_concurrency"] = int(settings["llm_concurrency"])
     except (TypeError, ValueError):
         settings["llm_concurrency"] = 4
+    try:
+        settings["llm_temperature"] = parse_temperature(settings["llm_temperature"])
+    except ValueError:
+        settings["llm_temperature"] = None
     return settings
 
 
@@ -85,6 +106,7 @@ def save_settings(workspace: Path, data: dict[str, Any]) -> dict[str, Any]:
     cur["lang_to"] = str(cur.get("lang_to") or "zh").strip()[:8] or "zh"
     cur["llm_api_key"] = str(cur.get("llm_api_key") or "").strip()
     cur["llm_model"] = str(cur.get("llm_model") or "").strip()
+    cur["llm_temperature"] = parse_temperature(cur["llm_temperature"])
     f = Path(workspace) / "settings.json"
     tmp = f.with_suffix(".tmp")
     tmp.write_text(json.dumps(cur, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -128,10 +150,13 @@ def _restore_placeholders(text: str, placeholders: dict[str, str]) -> str:
     return text
 
 
-def cache_key(pdf_hash: str, block_text: str, model: str, lang_to: str, provider: str = "") -> str:
+def cache_key(pdf_hash: str, block_text: str, model: str, lang_to: str, provider: str = "", *,
+              temperature: float | None = None) -> str:
     raw = f"{pdf_hash}|{model}|{lang_to}|{block_text}"
     if provider:
         raw += "|provider=" + provider.rstrip("/")
+    if temperature is not None:
+        raw += f"|temperature={temperature}"
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
@@ -170,12 +195,15 @@ class TranslateCache:
 
 # ---- LLM 调用 ----
 
-def http_chat(base_url: str, api_key: str, model: str, messages: list[dict], timeout: int = 90) -> str:
+def http_chat(base_url: str, api_key: str, model: str, messages: list[dict], timeout: int = 90, *,
+              temperature: float | None = None) -> str:
     """OpenAI 兼容 /chat/completions 调用(标准库实现)。"""
     url = chat_url(base_url)
-    payload = json.dumps({"model": model, "messages": messages, "temperature": 0.2}).encode("utf-8")
+    payload = {"model": model, "messages": messages}
+    if temperature is not None:
+        payload["temperature"] = temperature
     req = urllib.request.Request(
-        url, data=payload, method="POST",
+        url, data=json.dumps(payload).encode("utf-8"), method="POST",
         headers={"Content-Type": "application/json"},
     )
     if api_key:
@@ -353,6 +381,7 @@ def translate_batch(
     lang_to = settings.get("lang_to") or "zh"
     base_url = settings.get("llm_base_url") or ""
     api_key = settings.get("llm_api_key") or ""
+    temperature = parse_temperature(settings.get("llm_temperature"))
     concurrency = max(1, min(16, int(settings.get("llm_concurrency") or 8)))
 
     abstract = ""
@@ -374,7 +403,7 @@ def translate_batch(
     uncached: list[dict] = []
     for u in units:
         text = _unit_marked_text(u)
-        key = cache_key(pdf_hash, text, model, lang_to, base_url)
+        key = cache_key(pdf_hash, text, model, lang_to, base_url, temperature=temperature)
         hit = cache.get(key)
         first = u["first_id"]
         if hit is not None and (isinstance(hit, str) and len(u["block_ids"]) == 1 and hit.strip()
@@ -412,7 +441,7 @@ def translate_batch(
         last_err = ""
         for attempt in range(3):
             try:
-                out = http_post(base_url, api_key, model, messages)
+                out = http_post(base_url, api_key, model, messages, temperature=temperature)
                 parsed = parse_batch_output(out, len(seg))
                 missing = [i for i in range(len(seg)) if i not in parsed or not parsed[i]]
                 if missing:

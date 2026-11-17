@@ -23,6 +23,25 @@
       }
       catch (_) { /* An old content document may no longer be accessible. */ }
     },
+    renderSelection(state, context, regions) {
+      this.clear(state);
+      if (state.mode !== "split") return;
+      for (const number of new Set(regions.map(region => region.page))) {
+        const page = PL.PDFContext.page(context, number-1);
+        if (!page?.div) continue;
+        const svg = context.doc.createElementNS(ns,"svg");
+        svg.classList.add("paperloom-pdf-highlight","paperloom-sentence-highlight");
+        svg.setAttribute("viewBox","0 0 1 1"); svg.setAttribute("preserveAspectRatio","none");
+        svg.style.cssText="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1000";
+        for (const {bbox:[x0,y0,x1,y1]} of regions.filter(region=>region.page===number)) {
+          const rect=context.doc.createElementNS(ns,"rect");
+          for (const [name,value] of Object.entries({x:x0,y:y0,width:x1-x0,height:y1-y0,fill:"rgba(255,205,45,.42)",rx:.001})) rect.setAttribute(name,String(value));
+          svg.append(rect);
+        }
+        page.div.append(svg); state.pdfHighlights.push(svg);
+      }
+      state.pdfHighlight=state.pdfHighlights[0] || null;
+    },
     render(state, context, regions) {
       this.clear(state);
       if (!PL.pref("blockCompare", true) || !regions.length || state.mode !== "split") return;

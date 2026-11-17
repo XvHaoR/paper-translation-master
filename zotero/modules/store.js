@@ -37,10 +37,10 @@
         if (!attachment.isAttachment() || attachment.deleted) continue;
         const tags = PL.tags(attachment);
         const value = prefix => tags.find(tag => tag.startsWith(prefix))?.slice(prefix.length);
-        const sourceKey = value("paperloom:pdf:");
+        const sourceKey = PL.AttachmentGroups.sourceKey(attachment);
         if (!sourceKey) continue;
         const source = await Zotero.Items.getByLibraryAndKeyAsync(attachment.libraryID, sourceKey);
-        if (!source) continue;
+        if (!PL.AttachmentGroups.isPDF(source)) continue;
         const kind = tags.includes("paperloom:ocr") ? "ocr" : "translate";
         const language = value("paperloom:lang:") || "zh";
         let documentID = value("paperloom:document:");
@@ -54,6 +54,9 @@
         const previous = kind === "ocr" ? record.ocr : record.translations[language];
         if (!previous?.attachmentID || attachment.id >= previous.attachmentID) {
           const status = { state: path ? "ready" : "missing", attachmentID: attachment.id, attachmentKey: attachment.key,
+            recognitionMode:metadata.recognition_mode || (metadata.native_parser_version ? "layout" : null),
+            localEngine:metadata.local_engine || null, needsReview:!!metadata.needs_review,
+            sourceRevision:kind === "ocr" ? metadata.source_revision || null : null,
             hash: value("paperloom:hash:"), documentID, exportID: value("paperloom:export:"),
             editRevision: kind === "ocr" && metadata.edited ? metadata.source_revision : null,
             ocrRevision: metadata.ocr_revision || null,
@@ -116,6 +119,8 @@
     label(item, kind) {
       if (!item.isRegularItem() && !(item.isAttachment() && item.attachmentContentType === "application/pdf")) return "";
       const state = this.stateForItem(item, kind);
+      if (kind === "ocr" && state === "ready" && Object.values(this.records)
+        .some(record => (record.itemID === item.id || record.parentID === item.id) && record.ocr?.needsReview)) return "已识别 · 待核对";
       if (kind === "translate" && state === "ready" && Object.values(this.records).some(record =>
         (record.itemID === item.id || record.parentID === item.id) && PL.Editing?.stale(record))) return "原文已修改";
       return ({ processing: kind === "ocr" ? "识别中…" : "翻译中…", queued: "排队中", failed: "失败 · 可重试",
@@ -128,6 +133,22 @@
       const attachment = await Zotero.Items.getAsync(status.attachmentID);
       if (!attachment || attachment.deleted || !await attachment.getFilePathAsync()) return null;
       return { ...status, attachment };
+    },
+    async savedAttachment(attachment, kind) {
+      const tags = PL.tags(attachment);
+      if (!tags.includes(kind === "ocr" ? "paperloom:ocr" : "paperloom:reader")) return null;
+      const filename = await attachment.getFilePathAsync();
+      if (!filename) return null;
+      const manifest = await IOUtils.readJSON(PathUtils.join(PathUtils.parent(filename), "manifest.json")).catch(() => ({}));
+      const value = prefix => tags.find(tag => tag.startsWith(prefix))?.slice(prefix.length);
+      return {
+        attachment, attachmentID:attachment.id, hash:value("paperloom:hash:"),
+        documentID:manifest.document_id || value("paperloom:document:"),
+        exportID:manifest.id || value("paperloom:export:"),
+        recognitionMode:manifest.recognition_mode || (manifest.native_parser_version ? "layout" : null),
+        sourceRevision:manifest.source_revision || null, needsReview:!!manifest.needs_review,
+        ocrRevision:manifest.ocr_revision || null,
+      };
     },
   };
 })();

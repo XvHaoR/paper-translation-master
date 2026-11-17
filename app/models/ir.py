@@ -107,6 +107,7 @@ class Block(BaseModel):
     heading_level: Optional[int] = Field(default=None, ge=1, le=6)
     page: int = 0
     order: int = 0
+    reading_order: Optional[int] = None
     bbox: list[float] = Field(default_factory=list)  # [x0, y0, x1, y1] 归一化
     content: BlockContent = Field(default_factory=BlockContent)
     source: SourceInfo = Field(default_factory=SourceInfo)
@@ -183,3 +184,9 @@ class DocumentIR(BaseModel):
 def block_id(page: int, order: int) -> str:
     """稳定块 ID：p003-b012。"""
     return f"p{page:03d}-b{order:03d}"
+
+
+def ordered_blocks(blocks: list[Block]) -> list[Block]:
+    if blocks and all(block.reading_order is not None for block in blocks):
+        return sorted(blocks, key=lambda block: block.reading_order)
+    return sorted(blocks, key=lambda block: (block.page, block.order))

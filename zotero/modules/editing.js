@@ -54,6 +54,8 @@
         for (const language of Object.keys(PL.Store.ensure(source).translations || {})) {
           const translation = await PL.Store.saved(source,"translate",language);
           if (!translation) continue;
+          if (PL.config?.unified && translation.ocrRevision && manifest.source_revision &&
+              translation.ocrRevision !== manifest.source_revision) continue;
           const file = await translation.attachment.getFilePathAsync();
           if (file) translations.push({language,saved:PathUtils.parent(file),attachmentID:translation.attachmentID});
         }
@@ -70,6 +72,10 @@
         if (response.error || result.exitCode !== 0) throw new Error(response.error || log);
         const latest = await PL.Store.saved(source,"ocr");
         if (latest?.attachmentID !== saved.attachmentID) throw new Error("保存期间 OCR 版本已更新，请重新编辑");
+        if (PL.config?.unified) {
+          response.artifact.recognition_mode = saved.recognitionMode;
+          response.artifact.local_engine = saved.localEngine;
+        }
         const updated = await PL.Artifacts.save(source,"ocr",saved.hash,response.artifact,output,PL.language());
         for (const translation of response.translations || []) {
           const latestTranslation = await PL.Store.saved(source,"translate",translation.language);
@@ -86,17 +92,23 @@
         return updated;
       } finally { await IOUtils.remove(temp.path,{recursive:true,ignoreAbsent:true}); }
     },
-    async uploadSource(task, ocr) {
+    async uploadSource(task, ocr, revision = ocr.editRevision) {
       const path = await ocr.attachment.getFilePathAsync();
-      const bytes = await IOUtils.read(PathUtils.join(PathUtils.parent(path),"source.zip"));
+      const source = path && PathUtils.join(PathUtils.parent(path),"source.zip");
+      if (!revision || !source || !await IOUtils.exists(source))
+        throw new Error("这份旧识别结果缺少可验证的原文快照。请先重新识别，再翻译新结果。");
+      const bytes = await IOUtils.read(source);
       const form = new task.window.FormData();
-      form.append("revision",ocr.editRevision);
+      form.append("revision",revision);
       form.append("upload",new task.window.Blob([bytes],{type:"application/zip"}),"source.zip");
-      await PL.request("POST",`/api/documents/${encodeURIComponent(ocr.documentID)}/edited-source`,undefined,
+      await PL.Tasks.request(task,"POST",`/api/documents/${encodeURIComponent(ocr.documentID)}/edited-source`,undefined,
         {body:form,headers:{"Content-Type":"multipart/form-data"}});
     },
     stale(record, language = PL.language()) {
       const translation = record?.translations?.[language];
+      if (PL.config?.unified && translation?.attachmentID && record.ocr?.sourceRevision) {
+        return (translation.ocrRevision || null) !== record.ocr.sourceRevision;
+      }
       return !!translation?.attachmentID && (translation.ocrRevision || null) !== (record.ocr?.editRevision || null);
     },
   };

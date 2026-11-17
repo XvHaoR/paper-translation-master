@@ -176,6 +176,8 @@ class JobStore:
 
     @staticmethod
     def _job_key(document_id: str, options: ConvertOptions) -> str:
+        from app.parsing.reading_flow import PARSER_VERSION
+
         return "|".join(
             [
                 document_id,
@@ -184,6 +186,7 @@ class JobStore:
                 str(options.render_dpi),
                 options.pages or "all",
                 "force" if options.force else "cached",
+                PARSER_VERSION if options.ocr_mode == "layout" else "",
             ]
         )
 
@@ -396,6 +399,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     from app.parsing.paddle_cloud import cloud_enabled
     cloud = cloud_enabled()
+    unified = os.environ.get("PAPERBRIDGE_UNIFIED") == "1"
     orch = Orchestrator(settings.workspace)
     jobs = JobStore(settings, orch)
     store = DocumentStore(settings)
@@ -462,12 +466,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         device: str = Form("auto"),
         force: bool = Form(False),
     ):
-        if cloud and (ocr_mode != "official" or request.headers.get("x-paperloom-cloud") != "1"):
+        mode = ocr_mode or settings.ocr_mode
+        if (cloud or mode == "cloud") and (request.headers.get("x-paperloom-cloud") != "1"
+                                           or (cloud and mode != "official")
+                                           or (mode == "cloud" and not unified)):
             raise HTTPException(403, "云端 OCR 需由已选择云端模式的 Zotero 插件提交")
+        if unified and mode not in {"layout", "cloud"}:
+            raise HTTPException(422, "请选择直接解析 PDF 或云端 OCR；本地 OCR 使用独立引擎")
         pdf_path = _save_upload(upload, settings)
         job_id = jobs.create(
             pdf_path,
-            ConvertOptions(ocr_mode=ocr_mode or settings.ocr_mode, ocr_device=device, force=force),
+            ConvertOptions(ocr_mode=mode, ocr_device=device, force=force),
         )
         return {"job_id": job_id, "state": "queued"}
 
@@ -582,7 +591,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/settings/test")
     def test_translation_api(body: dict):
-        from app.services.translator import http_chat, load_settings, translate_enabled, DEFAULT_SETTINGS
+        from app.services.translator import http_chat, load_settings, parse_temperature, translate_enabled, DEFAULT_SETTINGS
 
         config = load_settings(settings.workspace)
         config.update({k: v for k, v in body.items() if k in DEFAULT_SETTINGS})
@@ -590,7 +599,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(400, "请填写服务地址与模型名")
         try:
             text = http_chat(config["llm_base_url"], config.get("llm_api_key", ""), config["llm_model"],
-                             [{"role": "user", "content": "Translate into Chinese. Output only the translation: Hello."}], timeout=20)
+                             [{"role": "user", "content": "Translate into Chinese. Output only the translation: Hello."}],
+                             timeout=20, temperature=parse_temperature(config["llm_temperature"]))
             return {"ok": True, "text": text}
         except Exception as exc:
             detail = str(exc)
@@ -642,9 +652,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"ok": True, "protocol": 2, "export_schema": EXPORT_VERSION,
                 "managed_owner": os.environ.get("PAPERBRIDGE_ZOTERO_OWNER") or None,
                 "cloud_ocr": cloud,
-                "features": ["ocr-export", "translations", "offline-reader", "force-ocr", "cancel-ocr", "edited-source"],
-                "ocr_modes": ["official", "auto", "native", "full", "hybrid"] +
-                    (["rapidocr"] if __import__("importlib.util", fromlist=["find_spec"]).find_spec("rapid_doc") else [])}
+                "features": ["ocr-export", "translations", "offline-reader", "force-ocr", "cancel-ocr", "edited-source"]
+                    + (["unified-recognition"] if unified else []),
+                "ocr_modes": ["layout", "cloud"] if unified else (
+                    ["official", "auto", "native", "full", "hybrid"] +
+                    (["rapidocr"] if __import__("importlib.util", fromlist=["find_spec"]).find_spec("rapid_doc") else []))}
 
     @app.post("/api/documents/{doc_id}/edited-source")
     async def edited_source(doc_id: str, revision: str = Form(...), upload: UploadFile = File(...)):

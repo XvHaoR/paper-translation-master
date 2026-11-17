@@ -3,13 +3,20 @@
   const PL = PaperLoom;
   PL.Service = {
     state: { phase: "stopped", message: "服务未启动" },
-    async online(url = PL.serviceURL()) {
+    configuredURL() {
+      if (!PL.config?.unified) return PL.serviceURL();
+      return this.localOCR ? PL.serviceURL(PL.pref("unifiedLocalURL", "http://127.0.0.1:8765"))
+        : PL.serviceURL("http://127.0.0.1:8790");
+    },
+    url() { return this.readyURL || this.configuredURL(); },
+    async online(url = this.url()) {
       try {
         const response = await Zotero.HTTP.request("GET", PL.serviceURL(url) + "/api/zotero/status", { timeout: 1500, responseType: "json" });
         return response.response?.protocol === 2 && response.response?.export_schema >= Math.max(7, PL.config?.minimumExportSchema || 7)
           && !!response.response?.cloud_ocr === (this.backend() === "cloud")
           && (!response.response?.managed_owner || response.response.managed_owner === this.instance)
           && (this.ocrMode() !== "rapidocr" || response.response?.ocr_modes?.includes("rapidocr"))
+          && (!PL.config?.unified || this.localOCR !== Boolean(response.response?.features?.includes("unified-recognition")))
           && ["force-ocr", "cancel-ocr", "edited-source"].every(feature => response.response?.features?.includes(feature));
       }
       catch (_) { return false; }
@@ -17,13 +24,14 @@
     update(phase, message) {
       this.state = { phase, message };
       PL.UI?.refreshService();
+      if (this.localOCR) PL.UI?.refreshTasks();
     },
     async ensure() {
       if (this.stopping) await this.stopping;
       if (this.starting) return this.starting;
       // The leased child is already watched by process.wait(). A transient
       // HTTP timeout between papers must not tear down its warm OCR model.
-      if (this.state.phase === "ready" && this.readyURL === PL.serviceURL()) {
+      if (this.state.phase === "ready" && this.readyURL) {
         if (this.owned && this.process && this.instance) return;
         if (Date.now() - (this.lastReadyAt || 0) < 15000) return;
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -35,7 +43,7 @@
       return this.starting;
     },
     async project() {
-      const runtime = PL.Runtime ? await PL.Runtime.resolve() : null;
+      const runtime = this.localOCR ? await PL.Runtime.localOCR() : (PL.Runtime ? await PL.Runtime.resolve() : null);
       this.runtime = runtime;
       const root = runtime?.projectRoot || PL.pref("projectRoot", PL.config.projectRoot);
       if (!root || !await IOUtils.exists(PathUtils.join(root, "scripts", "zotero_service.py"))) {
@@ -55,8 +63,15 @@
       return Subprocess.pathSearch(Zotero.isWin ? "python.exe" : "python3");
     },
     cloudTokenPath() { return PathUtils.join(PL.Store.directory, "cloud-ocr-token"); },
-    ocrMode() { return this.runtime?.ocrMode || PL.config?.ocrMode || "official"; },
+    ocrMode() {
+      if (PL.config?.unified) {
+        if (!this.localOCR) return "layout";
+        return this.runtime?.ocrMode || (PL.pref("unifiedLocalEngine", "auto") === "cpu" ? "rapidocr" : "official");
+      }
+      return this.runtime?.ocrMode || PL.config?.ocrMode || "official";
+    },
     backend() {
+      if (PL.config?.unified) return this.localOCR ? this.runtime?.backend || "local" : "local";
       if (PL.config?.cloudPreview) return "cloud";
       if (this.ocrMode() === "rapidocr") return "local";
       return this.runtime?.pinned ? this.runtime.backend : PL.pref("backend", this.runtime?.backend || PL.config.defaultBackend || "local");
@@ -77,8 +92,9 @@
       this.update("checking", "检查本地服务…");
       try {
         if (!this.runtime) { try { await this.project(); } catch (_) { /* A configured external API remains usable. */ } }
-        if (await this.online()) {
-          this.readyURL = PL.serviceURL(); this.lastReadyAt = Date.now();
+        const configured = this.configuredURL();
+        if (await this.online(configured)) {
+          this.readyURL = configured; this.lastReadyAt = Date.now();
           this.update("ready", "服务已就绪"); return;
         }
         if (this.process) {
@@ -102,11 +118,12 @@
         const { Subprocess } = ChromeUtils.importESModule("resource://gre/modules/Subprocess.sys.mjs");
         this.owned = false;
         const arguments_ = ["-X", "utf8", PathUtils.join(root, "scripts", "zotero_service.py"), "--state-file", this.statePath,
-          "--lease-file", this.leasePath, "--instance", this.instance, "--port", new URL(PL.serviceURL()).port || "80",
+          "--lease-file", this.leasePath, "--instance", this.instance, "--port", new URL(configured).port || "80",
           "--backend", this.backend(), "--parent-pid", String(Services.appinfo.processID)];
-        if (this.backend() === "cloud") arguments_.push("--cloud-token-file", this.cloudTokenPath());
-        if (this.ocrMode() === "rapidocr") arguments_.push("--ocr-mode", "rapidocr");
+        if (this.backend() === "cloud" || this.ocrMode() === "layout") arguments_.push("--cloud-token-file", this.cloudTokenPath());
+        if (this.ocrMode() !== "official") arguments_.push("--ocr-mode", this.ocrMode());
         if (this.runtime?.descriptor) arguments_.push("--runtime-config",this.runtime.descriptor);
+        if (this.runtime?.workspace) arguments_.push("--workspace", this.runtime.workspace);
         this.process = await Subprocess.call({ command: python, arguments: arguments_, workdir: root, stderr: "stdout" });
         const process = this.process;
         // Subprocess starts without a console window; drain the pipe throughout
@@ -129,10 +146,10 @@
           if (status?.instance === this.instance) {
             this.update(status.phase, status.message);
             if (status.phase === "failed") throw new Error(status.message);
-            const serviceURL = status.service_url ? PL.serviceURL(status.service_url) : PL.serviceURL();
+            const serviceURL = status.service_url ? PL.serviceURL(status.service_url) : configured;
             if (status.phase === "ready" && await this.online(serviceURL)) {
               // Only remember the fallback after the new service has proved ready.
-              PL.setPref("serviceURL", serviceURL);
+              if (!PL.config?.unified) PL.setPref("serviceURL", serviceURL);
               this.owned = !!status.owned;
               if (!this.owned) { await this.releaseLease(); this.instance = null; this.process = null; }
               this.readyURL = serviceURL; this.lastReadyAt = Date.now();
@@ -192,4 +209,6 @@
       if (this.process) await this.process.wait();
     },
   };
+  PL.Service.localOCR = false;
+  PL.LocalOCR = { ...PL.Service, localOCR:true, state:{phase:"stopped", message:"本地 OCR 未启动"} };
 })();

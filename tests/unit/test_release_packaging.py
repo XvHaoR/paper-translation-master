@@ -44,8 +44,15 @@ def test_portable_xpi_preserves_upgrade_id_without_local_paths(release_tree):
         assert config["runtimeDirectory"] == release["runtimeDirectory"]
         assert config["ocrMode"] == release.get("ocrMode", "official")
         assert manifest["applications"]["zotero"]["id"] == "paperloom@paperloom.local"
-        assert manifest["applications"]["zotero"]["update_url"] == "https://github.com/XvHaoR/paper-translation-master/releases/latest/download/" + ("cloud-updates.json" if release.get("cloudPreview") else "updates.json")
-        assert not config.get("localHTMLPreview") and "localRuntimeDescriptor" not in config
+        url = manifest["applications"]["zotero"]["update_url"]
+        if release.get("localOnly"):
+            assert url.startswith("https://127.0.0.1/") and config.get("localHTMLPreview")
+        elif release.get("unified"):
+            assert url == f"https://github.com/{release['repository']}/releases/download/v{release['version']}/updates.json"
+        else:
+            assert url == "https://github.com/XvHaoR/paper-translation-master/releases/latest/download/" + ("cloud-updates.json" if release.get("cloudPreview") else "updates.json")
+        assert "localRuntimeDescriptor" not in config
+        assert bool(config.get("unified")) == bool(release.get("unified"))
         assert "content/paper-layout.mjs" in bundle.namelist()
         assert "content/paper-reader.js" in bundle.namelist()
         for name in bundle.namelist():
@@ -101,7 +108,7 @@ def test_tag_and_version_mismatch_fail_before_build(release_tree):
 
 def test_release_checksums_cover_both_engine_installers(release_tree,monkeypatch):
     release=json.loads((release_tree/'release.json').read_text(encoding='utf-8'))
-    release.update(version='0.5.0',runtimeDirectory='PaperTranslationMaster',slug='paper-translation-master',cloudPreview=False,cpuInstaller=True)
+    release.update(version='0.5.0',runtimeDirectory='PaperTranslationMaster',slug='paper-translation-master',cloudPreview=False,cpuInstaller=True,unified=False)
     (release_tree/'release.json').write_text(json.dumps(release),encoding='utf-8')
     manifest=json.loads((release_tree/'zotero/manifest.json').read_text(encoding='utf-8'));manifest['version']='0.5.0'
     (release_tree/'zotero/manifest.json').write_text(json.dumps(manifest),encoding='utf-8')

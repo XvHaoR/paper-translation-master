@@ -1,5 +1,6 @@
 """Persistent exports survive restart and never publish partial translations."""
 import json
+import io
 import re
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -38,7 +39,7 @@ def document(tmp_path):
     return doc_dir
 
 
-def fake_http(*args):
+def fake_http(*args, **_kwargs):
     prompt = args[3][0]["content"]
     inputs = translator.parse_batch_output(prompt.split("\n请把每条")[0], 10000)
     return "\n".join(f"[ID:{index}] 中文：{text}" for index, text in inputs.items())
@@ -104,9 +105,9 @@ def test_structured_pairs_and_offline_actions_are_saved(document, tmp_path, monk
 def test_force_translation_bypasses_artifact_and_unit_caches(document, tmp_path, monkeypatch):
     original = translator.translate_batch
     calls = []
-    def http(*args):
+    def http(*args, **kwargs):
         calls.append(1)
-        return fake_http(*args)
+        return fake_http(*args, **kwargs)
     monkeypatch.setattr(translator, "translate_batch", lambda *a, **kw: original(*a, **({"http_post": http} | kw)))
     cache = translator.TranslateCache(tmp_path / "cache.json")
     first = create_translation(document, CONFIG, cache)
@@ -143,9 +144,9 @@ def test_forced_generation_retries_keep_the_new_result_without_old_cache(documen
 def test_forced_generation_can_rebuild_from_its_new_unit_cache(document, tmp_path, monkeypatch):
     original = translator.translate_batch
     provider_calls = []
-    def http(*args):
+    def http(*args, **kwargs):
         provider_calls.append(1)
-        return fake_http(*args)
+        return fake_http(*args, **kwargs)
     monkeypatch.setattr(translator, "translate_batch", lambda *a, **kw: original(*a, **({"http_post": http} | kw)))
     cache = translator.TranslateCache(tmp_path / "cache.json")
     revision = "b" * 24
@@ -189,9 +190,9 @@ def test_provider_change_does_not_reuse_other_providers_blocks(document, tmp_pat
     original = translator.translate_batch
     calls = []
 
-    def http(*args):
+    def http(*args, **kwargs):
         calls.append(args[0])
-        return fake_http(*args)
+        return fake_http(*args, **kwargs)
 
     monkeypatch.setattr(translator, "translate_batch", lambda *a: original(*a, http_post=http))
     cache = translator.TranslateCache(tmp_path / "cache.json")
@@ -199,6 +200,37 @@ def test_provider_change_does_not_reuse_other_providers_blocks(document, tmp_pat
     other = {**CONFIG, "llm_base_url": "http://localhost:9998/v1"}
     create_translation(document, other, cache)
     assert CONFIG["llm_base_url"] in calls and other["llm_base_url"] in calls
+
+
+def test_temperature_reaches_connection_test_and_new_translation(document, tmp_path, monkeypatch):
+    requests = []
+
+    def provider(request, *, timeout):
+        payload = json.loads(request.data)
+        requests.append(payload)
+        messages = payload["messages"]
+        content = "你好" if "Hello." in messages[0]["content"] else fake_http(None, None, None, messages)
+        return io.BytesIO(json.dumps({"choices": [{"message": {"content": content}}]}).encode())
+
+    monkeypatch.setattr("urllib.request.urlopen", provider)
+    monkeypatch.delenv("PAPERBRIDGE_LLM_TEMPERATURE", raising=False)
+    client = TestClient(create_app(Settings(workspace=tmp_path)))
+    assert client.put("/api/settings", json=CONFIG).json()["llm_temperature"] is None
+    assert client.post("/api/settings/test", json={}).json()["ok"]
+    assert "temperature" not in requests[-1]
+    first = client.post("/api/documents/paper/translations", json={}).json()
+    assert first["complete"]
+    assert "temperature" not in requests[-1]
+
+    assert client.post("/api/settings/test", json={"llm_temperature": "0"}).json()["ok"]
+    assert requests[-1]["temperature"] == 0
+    assert client.post("/api/settings/test", json={"llm_temperature": "nan"}).status_code == 400
+    assert client.put("/api/settings", json={"llm_temperature": "0.7"}).json()["llm_temperature"] == 0.7
+    before = len(requests)
+    second = client.post("/api/documents/paper/translations", json={}).json()
+    assert second["complete"] and first["id"] != second["id"]
+    assert requests[before:] and all(request["temperature"] == 0.7 for request in requests[before:])
+    assert client.get(f"/api/documents/paper/translations/{first['id']}/bundle.zip").status_code == 200
 
 
 def test_concurrent_requests_publish_once(document, tmp_path, monkeypatch):

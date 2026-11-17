@@ -1,4 +1,6 @@
-# 云端版与本地版安装
+# 本地 OCR 引擎与历史版本安装
+
+使用 0.7.1 的用户请先安装[融合版完整包](UNIFIED_EDITION.md)。本页的 GPU／CPU 安装器可为融合版部署本地 OCR 引擎，融合版使用完整包内的 XPI。
 
 0.6.0 云端版：下载[Windows 完整包](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.6.0/paper-translation-master-cloud-windows-x64-0.6.0.zip)，解压并运行 Install-Cloud.cmd，安装包内 XPI，重启后填写 [AI Studio Access Token](https://aistudio.baidu.com/account/accessToken)。无需本机模型；PDF 会上传至飞桨。
 
@@ -6,7 +8,7 @@
 
 # 安装与升级论文翻译大师 0.5.0
 
-[0.5.0 正式版下载](https://github.com/XvHaoR/paper-translation-master/releases/tag/v0.5.0)。这是当前推荐版本，0.3.x、0.4.x 和本地 HTML 探索版仅供历史归档，不再推荐安装。
+[0.5.0 正式版和本地引擎下载](https://github.com/XvHaoR/paper-translation-master/releases/tag/v0.5.0)。下方是该版本的安装步骤。
 
 ## 安装插件与 OCR 引擎
 

@@ -238,6 +238,7 @@
       document.getElementById("s-base").value = s.llm_base_url || "";
       document.getElementById("s-key").value = s.llm_api_key || "";
       document.getElementById("s-model").value = s.llm_model || "";
+      document.getElementById("s-temperature").value = s.llm_temperature ?? "";
       document.getElementById("s-conc").value = s.llm_concurrency || 4;
       document.getElementById("s-lang").value = s.lang_to || "zh";
     }).catch(function () {
@@ -250,6 +251,7 @@
       llm_base_url: document.getElementById("s-base").value.trim(),
       llm_api_key: document.getElementById("s-key").value.trim(),
       llm_model: document.getElementById("s-model").value.trim(),
+      llm_temperature: document.getElementById("s-temperature").value.trim(),
       llm_concurrency: parseInt(document.getElementById("s-conc").value, 10) || 4,
       lang_to: document.getElementById("s-lang").value.trim() || "zh"
     };
@@ -271,7 +273,8 @@
     try {
       var r = await fetch("/api/settings/test", {method: "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({llm_base_url: document.getElementById("s-base").value.trim(),
-          llm_api_key: document.getElementById("s-key").value.trim(), llm_model: document.getElementById("s-model").value.trim()})});
+          llm_api_key: document.getElementById("s-key").value.trim(), llm_model: document.getElementById("s-model").value.trim(),
+          llm_temperature: document.getElementById("s-temperature").value.trim()})});
       var data = await r.json();
       if (!r.ok) throw new Error(data.detail || "连接失败");
       st.textContent = "连接成功：" + data.text; st.className = "status good";
@@ -289,6 +292,7 @@
     <label class="row">服务地址 <input id="s-base" placeholder="https://api.deepseek.com/v1 或 http://localhost:11434/v1" style="width:340px"></label>
     <label class="row">API Key <input id="s-key" type="password" placeholder="可留空(如 Ollama)" style="width:300px"></label>
     <label class="row">模型名 <input id="s-model" placeholder="deepseek-chat / qwen2.5 / ..." style="width:200px"></label>
+    <label class="row">Temperature <input id="s-temperature" inputmode="decimal" placeholder="留空使用模型默认值"></label>
     <label class="row">并发 <input id="s-conc" type="number" min="1" max="16" value="4" style="width:60px"></label>
     <label class="row">目标语言 <input id="s-lang" value="zh" style="width:60px"></label>
     <div class="row"><button id="s-save">保存</button><button id="s-test">测试连接</button><span id="s-status" class="status"></span></div>

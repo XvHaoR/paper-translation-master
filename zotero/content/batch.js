@@ -20,7 +20,13 @@ window.addEventListener("DOMContentLoaded", () => {
     $("forceRow").hidden=$("action").value==="translate";
     $("actionHint").textContent=$("action").value==="translate"?"已有译文直接复用；没有 OCR 的论文会先识别再翻译。":$("force").checked?"勾选的论文将重新 OCR，不复用已有识别缓存。":"已有 OCR 直接复用；只处理勾选的论文。";
     $("language").textContent=`翻译目标语言：${PL.language()}`;
-    for(const id of ["scope","action","force","selectFiltered","selectPending","clearSelection","selectPage"])$(id).disabled=busy||loading;
+    if(PL.config.unified){
+      $("schemeRow").hidden=$("action").value==="translate";
+      $("start").textContent=busy?"正在处理…":`${action()==="translate"?"开始翻译":"开始识别"}${chosen.length?`（${chosen.length} 篇）`:""}`;
+      $("actionHint").textContent=$("action").value==="translate"?"翻译使用当前保存的识别结果；尚未识别时使用默认方案。"
+        : $("scheme").value==="cloud" ? "勾选的 PDF 会提交给飞桨云端 OCR。" : "仅处理勾选的论文。";
+    }
+    for(const id of ["scope","action","force","scheme","selectFiltered","selectPending","clearSelection","selectPage"])$(id).disabled=busy||loading;
     $("close").textContent=busy?"关闭（后台继续）":"关闭";
     const onPage=filtered().slice(page*size,(page+1)*size).filter(row=>row.available);
     $("selectPage").checked=!!onPage.length&&onPage.every(row=>selection.has(row.id));
@@ -62,6 +68,7 @@ window.addEventListener("DOMContentLoaded", () => {
   function setAction(value){if(busy)return;$("action").value=value==="translate"?"translate":"ocr";$("force").checked=value==="force-ocr";counts();}
   $("search").addEventListener("input",()=>{page=0;render();});$("scope").addEventListener("change",load);
   $("action").addEventListener("change",counts);$("force").addEventListener("change",counts);
+  $("scheme").addEventListener("change",counts);
   $("selectFiltered").addEventListener("click",()=>{for(const row of filtered())if(row.available)selection.add(row.id);render();});
   $("clearSelection").addEventListener("click",()=>{selection.clear();render();});
   $("selectPending").addEventListener("click",()=>{
@@ -79,7 +86,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if(busy||loading||!selection.size)return;
     const chosen=[...selection],kind=action();busy=true;render();$("notice").textContent=`已提交 ${chosen.length} 篇，正在后台处理…`;
     try{
-      const batch=await PL.BatchPicker.submit(owner,kind,rows,chosen);
+      const batch=await PL.BatchPicker.submit(owner,kind,rows,chosen,PL.config.unified && kind!=="translate" ? $("scheme").value : undefined);
       if(!window.closed)$("notice").textContent=`已完成：成功 ${batch?.success||0} 篇${batch?.failed?`，失败 ${batch.failed} 篇`:""}。可关闭窗口后自行查看结果。`;
     }catch(error){if(!window.closed)$("notice").textContent=error.message;}
     finally{if(!window.closed){busy=false;render();}}
@@ -90,5 +97,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if(busy){const batch=PL.Tasks.lastBatch;$("notice").textContent=batch&&!batch.finished?`正在处理 ${batch.done}/${batch.total} 篇 · 成功 ${batch.success} · 失败 ${batch.failed}`:$("notice").textContent;}
   },1000);
   window.addEventListener("unload",()=>window.clearInterval(timer),{once:true});
+  $("schemeRow").hidden=!PL.config.unified;
+  if(PL.config.unified)$("scheme").value=PL.Recognition.defaultMode();
   window.PaperLoomBatch={setAction,reload:load};setAction(args.action);load();
 });

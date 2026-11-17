@@ -19,19 +19,19 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
-      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip install -e ".[dev,layout]"
       - run: npm ci --prefix tests/dom
       - run: python -m pytest tests/unit tests/integration -q
-      - name: Build portable packages and Windows installer
+      - name: Build portable packages
         shell: pwsh
         run: |
           if ($env:GITHUB_REF_TYPE -eq 'tag') {
-            python packaging/build_release.py --installer --tag $env:GITHUB_REF_NAME
+            python packaging/build_release.py --tag $env:GITHUB_REF_NAME
           } else {
-            python packaging/build_release.py --installer
+            python packaging/build_release.py
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Build model-free Windows cloud bundle
+      - name: Build Windows unified bundle
         shell: pwsh
         run: |
           $embed = Join-Path $env:RUNNER_TEMP 'python-3.13.17-embed-amd64.zip'
@@ -56,6 +56,10 @@ jobs:
         shell: pwsh
         run: |
           $release = Get-Content -Raw release.json | ConvertFrom-Json
+          if ($release.localOnly) {
+            Write-Host "Local-only build. GitHub publication skipped."
+            exit 0
+          }
           $assets = Get-ChildItem dist/release -File | Where-Object Name -ne 'RELEASE_NOTES.md' | ForEach-Object FullName
           $options = @('--verify-tag', '--title', "$($release.name) $($release.version)", '--notes-file', 'dist/release/RELEASE_NOTES.md')
           if ($release.prerelease) { $options += '--prerelease' }

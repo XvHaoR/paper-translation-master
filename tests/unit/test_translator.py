@@ -63,7 +63,7 @@ class _FakeLLM:
         self.calls: list[dict] = []
         self.fail_first = 0  # 前 N 次抛错(测重试)
 
-    def __call__(self, base_url, api_key, model, messages, timeout=90):
+    def __call__(self, base_url, api_key, model, messages, timeout=90, *, temperature=None):
         self.calls.append({"url": base_url, "key": api_key, "model": model, "messages": messages})
         if len(self.calls) <= self.fail_first:
             raise RuntimeError("mock down")
@@ -240,7 +240,7 @@ def test_translate_batch_merged_unit_per_block_results(tmp_path):
 def test_translate_batch_merged_unit_ignores_markers(tmp_path):
     """模型忽略 [[Bx]] 标记时:整段译文兜底挂首块,其余块报缺段。"""
     class _NoMarkers(_FakeLLM):
-        def __call__(self, base_url, api_key, model, messages, timeout=90):
+        def __call__(self, base_url, api_key, model, messages, timeout=90, *, temperature=None):
             return "[ID:0] 整段合并译文"
 
     res = translate_batch(_doc_dir(tmp_path, split_paragraphs=True), ["b1", "b2"], _settings(), _cache(tmp_path), _NoMarkers())
@@ -251,7 +251,7 @@ def test_translate_batch_merged_unit_ignores_markers(tmp_path):
 
 def test_translate_batch_placeholder_restored(tmp_path):
     class _Fixed(_FakeLLM):
-        def __call__(self, base_url, api_key, model, messages, timeout=90):
+        def __call__(self, base_url, api_key, model, messages, timeout=90, *, temperature=None):
             return "[ID:0] 译文保留 [[EQ0]] 原样"
 
     res = translate_batch(_doc_dir(tmp_path), ["b1"], _settings(), _cache(tmp_path), _Fixed())
@@ -289,6 +289,18 @@ def test_save_settings_roundtrip_and_validate(tmp_path):
     assert load_settings(tmp_path)["llm_model"] == "deepseek-chat"
     with pytest.raises(ValueError):
         save_settings(tmp_path, {"llm_base_url": "not-a-url"})
+
+
+def test_temperature_settings_preserve_zero_and_can_clear(tmp_path, monkeypatch):
+    monkeypatch.setenv("PAPERBRIDGE_LLM_TEMPERATURE", "0.2")
+    assert load_settings(tmp_path)["llm_temperature"] == 0.2
+    assert save_settings(tmp_path, {"llm_temperature": "0"})["llm_temperature"] == 0
+    for invalid in ("NaN", "Infinity", "-0.1", "warm", True):
+        with pytest.raises(ValueError, match="Temperature"):
+            save_settings(tmp_path, {"llm_temperature": invalid})
+    assert load_settings(tmp_path)["llm_temperature"] == 0
+    assert save_settings(tmp_path, {"llm_temperature": ""})["llm_temperature"] is None
+    assert load_settings(tmp_path)["llm_temperature"] is None
 
 
 def test_translate_enabled():
