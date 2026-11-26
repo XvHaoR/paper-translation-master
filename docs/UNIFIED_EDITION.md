@@ -2,11 +2,11 @@
 
 ## 安装
 
-1. 退出 Zotero。Windows x64 完整包请解压到固定目录，双击 `Install.cmd`。
+1. 退出 Zotero。将完整包解压到固定目录，Windows x64 运行 `Install.cmd`，Apple 芯片 Mac 运行 `Install.command`。Mac 的系统要求及本地引擎说明见 [macOS 安装](MACOS.md)。
 2. 在 Zotero「工具 → 插件 → 从文件安装」中选择解压目录里的 XPI，再重启 Zotero。插件沿用原来的 ID，已有 PDF、识别结果和译文仍可打开。
 3. 在「论文翻译大师 → 设置」中选择默认识别方案。PDF 阅读器和批量窗口可临时选其他方案。
 
-从源码安装时，在仓库根目录运行 `python scripts/install_unified.py`，再安装 `zotero/dist` 下的 XPI。源码安装首次需要联网下载 Python 依赖。完整测试包面向 Windows x64。
+从源码安装时，在仓库根目录运行 `python scripts/install_unified.py`，再安装 `zotero/dist` 下的 XPI。源码安装首次需要联网下载 Python 依赖。
 
 ## 选择识别方案
 

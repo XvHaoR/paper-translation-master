@@ -28,7 +28,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   const detectEngine = async () => {
     if (unified) {
       const runtime = await PL.Runtime.localOCR($("localEngine").value);
-      const engine = runtime.backend === "wsl" ? "WSL FastDeploy" : runtime.ocrMode === "rapidocr" ? "RapidOCR CPU" : "PaddleOCR GPU";
+      const engine = runtime.backend === "wsl" ? "WSL FastDeploy" : runtime.ocrMode === "rapidocr" ? "RapidOCR CPU"
+        : PL.Runtime.isMac() ? "PaddleOCR" : "PaddleOCR GPU";
       $("engineStatus").textContent = `已发现 ${engine} 环境。默认识别方案选「本地 OCR」后，保存设置并从 Zotero 工具栏启动。`;
       return;
     }
@@ -66,6 +67,17 @@ window.addEventListener("DOMContentLoaded", async () => {
     $("backend").value = PL.pref("unifiedLocalBackend", "local");
     for (const option of $("backend").options) if (option.value === "cloud") option.hidden = true;
     $("localEngineHint").textContent = "直接解析和云端 OCR 使用融合版运行环境。本地 OCR 可连接已有 GPU／CPU 安装，也可指定自定义环境。";
+    if (PL.Runtime.isMac()) {
+      $("localEngineHint").textContent = "macOS 完整包支持直接解析 PDF 与飞桨云端 OCR。本地 OCR 使用另行配置的兼容引擎或本机服务。";
+      for (const option of $("backend").options) if (option.value === "wsl") option.hidden = true;
+      if ($("backend").value === "wsl") $("backend").value = "local";
+      for (const option of $("localEngine").options) {
+        if (option.value === "gpu") option.hidden = true;
+        if (option.value === "auto") option.textContent = "自动检测";
+      }
+      if ($("localEngine").value === "gpu") $("localEngine").value = "auto";
+      $("downloadEngine").hidden = true;
+    }
     const toggleCustom = () => {
       for (const id of ["localBackendRow","localRootRow","localPythonRow"]) $(id).style.display = $("localEngine").value === "custom" ? "" : "none";
     };

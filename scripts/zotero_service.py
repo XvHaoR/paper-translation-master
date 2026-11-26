@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import signal
 import socket
 import subprocess
 import sys
@@ -95,6 +96,13 @@ def available_port(preferred: int) -> int:
     raise RuntimeError("无法分配本机服务端口")
 
 
+def signal_process_group(pid: int, sig: signal.Signals) -> None:
+    try:
+        os.killpg(pid, sig)
+    except ProcessLookupError:
+        pass
+
+
 def acquire_lock(root: Path, workspace: str | None = None):
     # An isolated test workspace can supply its own lock without contending
     # with the user's live project service or sharing any model processes.
@@ -163,13 +171,21 @@ def run(args) -> int:
                 return
             if job:
                 job.close()  # Also kills venv grandchildren and OCR subprocesses.
-            if process is not None and process.poll() is None:
-                process.terminate()
+            if process is not None:
+                if os.name != "nt":
+                    signal_process_group(process.pid, signal.SIGTERM)
+                elif process.poll() is None:
+                    process.terminate()
                 try:
                     process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    process.kill()
+                    if os.name != "nt":
+                        signal_process_group(process.pid, signal.SIGKILL)
+                    else:
+                        process.kill()
                     process.wait(timeout=5)
+                if os.name != "nt":
+                    signal_process_group(process.pid, signal.SIGKILL)
             if model is not None:
                 model.close()
             if owns_keepalive:
@@ -210,6 +226,8 @@ def run(args) -> int:
                          "PAPERBRIDGE_OFFICIAL_ACCELERATOR", "PAPERBRIDGE_OFFICIAL_WSL_URL"):
                 env.pop(name, None)
         env.update(runtime_environment(getattr(args, "runtime_config", None)))
+        if sys.platform == "darwin":
+            env["PYTHONNOUSERSITE"] = "1"
         env["PAPERBRIDGE_ZOTERO_OWNER"] = instance
         if requested_mode == "layout":
             env["PAPERBRIDGE_UNIFIED"] = "1"
@@ -263,16 +281,22 @@ def run(args) -> int:
         log_dir = root / "log"
         log_dir.mkdir(exist_ok=True)
         log_file = (log_dir / "paperloom-zotero.log").open("a", encoding="utf-8")
-        job = WindowsJob()
-        process = subprocess.Popen(
-            [sys.executable, "-X", "utf8", "-m", "app.cli", "serve", "--port", str(port)],
-            cwd=root, env=env, stdout=log_file, stderr=subprocess.STDOUT,
-            # Suspend before assignment so even a fast venv launcher cannot
-            # spawn an unowned grandchild between Popen and Job assignment.
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) | (0x4 if os.name == "nt" else 0),
-        )
-        job.assign(process)
-        job.resume(process)
+        with cleanup_lock:
+            if cleaned or not lease_valid(lease, instance):
+                raise StartupCancelled("Zotero 已取消启动")
+            if os.name == "nt":
+                job = WindowsJob()
+                # Suspend the venv launcher until it belongs to the Job Object.
+                options = {"creationflags": subprocess.CREATE_NO_WINDOW | 0x4}
+            else:
+                options = {"start_new_session": True}
+            process = subprocess.Popen(
+                [sys.executable, "-X", "utf8", "-m", "app.cli", "serve", "--port", str(port)],
+                cwd=root, env=env, stdout=log_file, stderr=subprocess.STDOUT, **options,
+            )
+            if job:
+                job.assign(process)
+                job.resume(process)
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
             if process.poll() is not None:

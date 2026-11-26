@@ -6,9 +6,13 @@
 
 [下载 Windows x64 完整包](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.7.1/paper-translation-master-windows-x64-0.7.1.zip) · [查看 Release 和校验值](https://github.com/XvHaoR/paper-translation-master/releases/tag/v0.7.1) · [完整安装说明](docs/UNIFIED_EDITION.md)
 
+[下载 macOS 完整包](https://github.com/XvHaoR/paper-translation-master/releases/tag/macos-v0.7.1) · [macOS 安装说明](docs/MACOS.md)
+
+macOS 版面向 Apple 芯片 Mac（macOS 14+），支持直接解析 PDF、飞桨云端 OCR 与翻译。包内附带运行环境。Windows 本地 OCR 安装器仍从原 Release 下载。
+
 ## 安装和升级
 
-1. 关闭 Zotero，将完整 ZIP 解压到固定目录，运行 `Install.cmd` 注册运行环境。
+1. 关闭 Zotero，将完整 ZIP 解压到固定目录。Windows 运行 `Install.cmd`，macOS 运行 `Install.command`。
 2. 在 Zotero「工具 → 插件 → 从文件安装」中选择解压目录里的 XPI，再重启 Zotero。
 3. 在「论文翻译大师 → 设置」选择识别方案。已有本地 OCR 的用户可以点击「检测已安装引擎」，选择「本地 OCR」并保存。
 
@@ -20,7 +24,7 @@
 | --- | --- |
 | **直接解析 PDF** | 默认方案，利用 PDF 的文字层和版面信息，无需 OCR 模型、独显或密钥。扫描页保留图像，换用 OCR 可识别图中的文字。 |
 | **本地 PaddleOCR-VL** | PDF 在本机处理。Windows 10 2004+／11 x64 一键安装方案要求 NVIDIA 显存至少 8 GB，推荐 12 GB，计算能力 CC 7.x–9.x、驱动至少 560.76，磁盘至少 15 GB，推荐 25 GB。已有 WSL FastDeploy 的用户也可复用环境。 |
-| **本地 RapidOCR** | CPU 运行，无需 NVIDIA、CUDA 或 WSL。建议至少 8 GB 内存和 5 GB 可用磁盘。 |
+| **本地 RapidOCR** | Windows CPU 安装器无需 NVIDIA、CUDA 或 WSL。建议至少 8 GB 内存和 5 GB 可用磁盘。 |
 | **云端 OCR** | 联网调用飞桨 PaddleOCR-VL-1.6，无需本机 OCR 模型和独显。仅在选择云端时上传所选 PDF，单篇上限 50 MB。自动上传须在云端模式单独启用。 |
 
 已有 GPU 或 CPU 用户可以继续使用 [0.5.0 的 GPU 安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-setup-0.5.0.exe) 或 [CPU 安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-rapidocr-setup-0.5.0.exe) 部署引擎。融合版使用自己的 XPI。[完整本地部署](docs/INSTALLATION.md) · [RapidOCR 说明](docs/RAPIDOCR_EDITION.md)
@@ -36,7 +40,7 @@
 
 ## 开发
 
-完整发布包面向 Windows x64。开发环境使用 Python 3.11+，测试包括 Python、Node.js 和隔离的 Zotero 配置。
+完整包支持 Windows x64 和 Apple 芯片 Mac。开发环境使用 Python 3.11+，测试包括 Python、Node.js 和隔离的 Zotero 配置。
 
 ```bash
 python -m pip install -e ".[dev,layout]"

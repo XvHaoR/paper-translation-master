@@ -195,6 +195,27 @@ data.schema=9;await assert.rejects(PaperLoom.Runtime.installed(),/安装信息/)
 """)
 
 
+def test_macos_plugin_prefers_application_support_and_can_reuse_legacy_runtime():
+    run_js(["runtime"], r"""
+Zotero.isMac = true;
+PaperLoom.config = {unified: true};
+globalThis.Services = {env: {get: name => ({HOME: '/Users/reader'})[name]}};
+globalThis.PathUtils = {join: (...parts) => parts.join('/'), isAbsolute: path => path.startsWith('/')};
+const name = 'PaperTranslationMasterUnified';
+const path = `/Users/reader/Library/Application Support/${name}/runtime.json`;
+const legacy = `/Users/reader/.local/share/${name}/runtime.json`;
+const files = new Set([path, legacy, '/paper/runtime/scripts/zotero_service.py', '/paper/python/bin/python3']);
+globalThis.IOUtils = {exists: async file => files.has(file), readJSON: async () => ({
+  schema: 1, projectRoot: '/paper/runtime', pythonPath: '/paper/python/bin/python3', backend: 'local'
+})};
+assert.equal((await PaperLoom.Runtime.resolve()).descriptor, path);
+files.delete(path);
+assert.equal((await PaperLoom.Runtime.resolve()).descriptor, legacy);
+files.delete(legacy);
+await assert.rejects(PaperLoom.Runtime.resolve(), /Install\.command/);
+""")
+
+
 def test_local_html_preview_pins_code_python_and_backend_without_changing_stable_preferences():
     run_js(["runtime","service","ui"], """
 PaperLoom.config={localHTMLPreview:true,localRuntimeDescriptor:'/preview/runtime.json',minimumExportSchema:11};

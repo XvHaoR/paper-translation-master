@@ -120,6 +120,7 @@
         const arguments_ = ["-X", "utf8", PathUtils.join(root, "scripts", "zotero_service.py"), "--state-file", this.statePath,
           "--lease-file", this.leasePath, "--instance", this.instance, "--port", new URL(configured).port || "80",
           "--backend", this.backend(), "--parent-pid", String(Services.appinfo.processID)];
+        if (Zotero.isMac) arguments_.unshift("-s");
         if (this.backend() === "cloud" || this.ocrMode() === "layout") arguments_.push("--cloud-token-file", this.cloudTokenPath());
         if (this.ocrMode() !== "official") arguments_.push("--ocr-mode", this.ocrMode());
         if (this.runtime?.descriptor) arguments_.push("--runtime-config",this.runtime.descriptor);

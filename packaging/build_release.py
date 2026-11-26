@@ -29,7 +29,8 @@ RUNTIME_SCRIPTS = {"scripts/launcher.py", "scripts/zotero_service.py", "scripts/
 ROOT_FILES = {"pyproject.toml", "release.json", "README.md", "CHANGELOG.md", "LICENSE", "THIRD_PARTY_NOTICES.md"}
 SOURCE_ROOT_FILES = ROOT_FILES | {".gitignore", "Install.cmd"}
 PUBLIC_DOCS = {"docs/INSTALLATION.md", "docs/RELEASING.md", "docs/READER_ARCHITECTURE.md", "docs/RAPIDOCR_EDITION.md",
-               "docs/UNIFIED_EDITION.md", "docs/MIGRATION.md"}
+               "docs/UNIFIED_EDITION.md", "docs/MIGRATION.md", "docs/MACOS.md"}
+SOURCE_SCRIPTS = {"scripts/build_cloud_bundle.py", "scripts/build_macos_bundle.py", "scripts/install_unified.py"}
 PRIVATE_PATTERNS = [
     re.compile(rb"[A-Za-z]:[\\/]+(?:Users[\\/]+(?!Public(?:[\\/]|$)|Default(?:[\\/]|$))[^\\/\s\"']+[\\/]+|claude_test[\\/]+)", re.I),
     re.compile(rb"(?:sk-[A-Za-z0-9_-]{24,}|AIza[A-Za-z0-9_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,})"),
@@ -50,7 +51,7 @@ def eligible(relative: str, *, source: bool = False) -> bool:
                 or (relative.startswith("app/static/mathjax/") and path.name in {"LICENSE", "NOTICE"}))
     if relative.startswith("licenses/"):
         return path.suffix in {".txt", ".md"} or path.name in {"LICENSE", "NOTICE"}
-    if source and relative in {"scripts/build_cloud_bundle.py", "scripts/install_unified.py"}:
+    if source and relative in SOURCE_SCRIPTS:
         return True
     if relative in RUNTIME_SCRIPTS:
         return True
@@ -84,8 +85,8 @@ def files(root: Path, *, source: bool = False) -> list[Path]:
             candidates.update(path for path in (root / directory).rglob("*") if path.is_file())
     if source:
         candidates.add(root / "packaging/build_release.py")
-        for script in ("build_cloud_bundle.py", "install_unified.py"):
-            path = root / "scripts" / script
+        for script in SOURCE_SCRIPTS:
+            path = root / script
             if path.is_file():
                 candidates.add(path)
     result = sorted(path for path in candidates if eligible(path.relative_to(root).as_posix(), source=source))
