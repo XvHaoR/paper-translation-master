@@ -2,6 +2,7 @@ name: macOS bundle
 on:
   push:
     branches: [main, codex/macos-0.7.1]
+    tags: ['macos-v*.*.*']
     paths:
       - 'app/**'
       - 'docs/MACOS.md'
@@ -63,3 +64,35 @@ jobs:
           name: macos-arm64
           path: ${{ env.MACOS_BUNDLE }}
           if-no-files-found: error
+          compression-level: 0
+  publish:
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'macos-v')
+    needs: macos-arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: macos-arm64
+          path: release-assets
+      - name: Publish macOS release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(jq -r .version release.json)
+          slug=$(jq -r .slug release.json)
+          test "$GITHUB_REF_NAME" = "macos-v$version"
+          bundle="$slug-macos-arm64-$version.zip"
+          (cd release-assets && sha256sum "$bundle" > SHA256SUMS)
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "Release already exists."
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease --latest=false \
+            --title "论文翻译大师 $version · macOS" --notes-file docs/MACOS.md \
+            "release-assets/$bundle" release-assets/SHA256SUMS

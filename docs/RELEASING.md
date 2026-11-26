@@ -8,6 +8,6 @@
 
 融合预览版的 XPI 读取同版本的更新清单。用户通过完整 ZIP 手动升级运行环境和 XPI。旧版更新通道沿用各自的清单。
 
-macOS 工作流在 Apple 芯片运行器构建自带 Python 的 ZIP，从解压目录运行安装器，并验证直接解析、导出和服务退出。本机可在 Apple 芯片 Mac 上运行 `python scripts/build_macos_bundle.py --output 目标目录 --python-archive CPython压缩包`。上游下载地址与 SHA-256 见工作流。macOS 专用 Release 使用 `macos-v0.7.1` 标签。
+macOS 工作流在 Apple 芯片运行器构建自带 Python 的 ZIP，从解压目录运行安装器，并验证直接解析、导出和服务退出。本机可在 Apple 芯片 Mac 上运行 `python scripts/build_macos_bundle.py --output 目标目录 --python-archive CPython压缩包`。上游下载地址与 SHA-256 见工作流。推送对应版本的 `macos-v0.7.1` 标签会构建并发布 macOS 专用预发行包和校验值。
 
 GitHub Release 工作流在 Windows 上测试、构建并生成校验值。推送与版本一致的标签可触发发布。维护者也可先上传已验收的文件，工作流会保留已有 Release 和附件。发布前核对 `SHA256SUMS`，确认包与预期提交一致，并检查包中没有用户密钥、工作区或个人论文。
