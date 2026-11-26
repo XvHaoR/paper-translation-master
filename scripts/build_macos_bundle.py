@@ -19,15 +19,15 @@ if [[ "$(/usr/sbin/sysctl -in hw.optional.arm64)" != 1 ]]; then
     exit 1
 fi
 cd -- "${0:A:h}"
-status=0
-./python/bin/python3 -I -X utf8 ./install.py || status=$?
-if [[ $status != 0 ]]; then
+install_status=0
+./python/bin/python3 -I -X utf8 ./install.py || install_status=$?
+if [[ $install_status != 0 ]]; then
     echo 'Runtime registration failed. See the error above.'
 fi
 if [[ "${1:-}" != --no-pause && -t 0 ]]; then
     read -r '?Press Return to close. ' || true
 fi
-exit "$status"
+exit "$install_status"
 """
 
 
