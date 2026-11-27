@@ -28,13 +28,15 @@ var PaperLoom = {
     if (!this.alive) throw new Error("论文翻译大师已停用");
     const { serviceURL, ...requestOptions } = options;
     const response = await Zotero.HTTP.request(method, this.serviceURL(serviceURL ?? this.Service?.url()) + path, {
-      timeout: 3600000, responseType: "json",
+      timeout: 3600000, responseType: "json", logBodyLength: 0,
       ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { "Content-Type": "application/json" } }),
       ...requestOptions, successCodes: false,
     });
     if (response.status < 200 || response.status >= 300) {
       const detail = response.response?.detail;
-      throw new Error(typeof detail === "string" ? detail : (detail?.message || JSON.stringify(detail || `HTTP ${response.status}`)));
+      const error = new Error(typeof detail === "string" ? detail : (detail?.message || JSON.stringify(detail || `HTTP ${response.status}`)));
+      error.status = response.status;
+      throw error;
     }
     return response.response;
   },
@@ -51,9 +53,9 @@ async function startup({ id, rootURI } = {}) {
   PaperLoom.rootURI = rootURI;
   Services.scriptloader.loadSubScript(rootURI + "content/table-excel.js", globalThis, "UTF-8");
   PaperLoom.Excel = globalThis.PaperLoomExcel;
-  for (const name of ["recognition", "runtime", "store", "attachment-groups", "service", "artifacts", "editing", "appearance", "tasks", "batch-picker",
+  for (const name of ["recognition", "runtime", "store", "attachment-groups", "service", "local-ocr-control", "artifacts", "editing", "appearance", "title-translations", "tasks", "batch-picker", "semantic-search",
     "source-regions", "pdf-context", "pdf-regions", "pdf-highlight", "pdf-selection", "scroll-sync", "reverse-selection", "comparison", "reader-layout", "reader-presentation",
-    "reader-panel", "reader-actions", "reader-session", "reader", "ui"]) {
+    "reader-panel", "reader-annotations", "reader-actions", "reader-session", "reader", "ui"]) {
     Services.scriptloader.loadSubScript(rootURI + `modules/${name}.js`, globalThis, "UTF-8");
   }
   PaperLoom.config = JSON.parse(await Zotero.File.getResourceAsync(rootURI + "config.json"));
@@ -68,12 +70,15 @@ async function startup({ id, rootURI } = {}) {
   Services.obs.addObserver(PaperLoom.quitObserver, "quit-application-granted");
   PaperLoom.UI.registerColumns();
   PaperLoom.ReaderUI.register();
+  PaperLoom.ReaderAnnotations.register();
   PaperLoom.Tasks.register();
   for (const window of Zotero.getMainWindows()) PaperLoom.UI.addWindow(window);
+  PaperLoom.SemanticSearch.resume();
 }
-function onMainWindowLoad({ window }) { if (PaperLoom.alive) PaperLoom.UI.addWindow(window); }
+function onMainWindowLoad({ window }) { if (PaperLoom.alive) { PaperLoom.UI.addWindow(window); PaperLoom.SemanticSearch.resume(); } }
 function onMainWindowUnload({ window }) { PaperLoom.UI?.removeWindow(window); }
 function stopServices() {
+  PaperLoom.LocalOCRControl?.shutdown();
   return PaperLoom.closingServices ||= Promise.allSettled([
     PaperLoom.Service?.shutdown(), PaperLoom.LocalOCR?.shutdown(),
   ]).then(results => {
@@ -86,6 +91,8 @@ async function shutdown(reason) {
   if (PaperLoom.quitObserver) Services.obs.removeObserver(PaperLoom.quitObserver, "quit-application-granted");
   try {
     PaperLoom.Tasks?.shutdown();
+    PaperLoom.SemanticSearch?.shutdown();
+    PaperLoom.ReaderAnnotations?.shutdown();
     PaperLoom.ReaderUI?.shutdown({ applicationShutdown: reason === 2 }); // APP_SHUTDOWN
     PaperLoom.UI?.shutdown();
     await PaperLoom.Store?.flush();

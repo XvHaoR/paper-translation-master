@@ -42,6 +42,7 @@ def render_sections(blocks: list[Block], originals: list[Block] | None, render, 
                  f'data-bbox="{html.escape(json.dumps(bbox), quote=True)}" '
                  f'data-block-type="{block.type.value}" data-role="{role(block)}" '
                  f'data-anchor-id="{html.escape(block.anchor_id or "", quote=True)}" '
+                 f'data-placement="{html.escape(block.placement or "", quote=True)}" '
                  f'data-reading-order="{block.reading_order if block.reading_order is not None else ""}" '
                  f'data-regions="{html.escape(json.dumps(original.source.regions), quote=True)}" '
                  f'data-source-text="{html.escape(original.source.text or "", quote=True)}"')
@@ -58,7 +59,7 @@ def render_sections(blocks: list[Block], originals: list[Block] | None, render, 
         if block.quality.needs_review and block.quality.warnings:
             content += '<details class="paper-warning"><summary>识别结果需核对</summary>' + html.escape('；'.join(block.quality.warnings)) + '</details>'
         badge = f'<span class="pl-role">{ROLE_LABELS.get(role(block), block.type.value)}</span>'
-        (notes if block.type is BlockType.FOOTNOTE else parts).append(f'<section class="pl-block" {attrs}>{badge}{content}</section>')
+        (notes if block.type is BlockType.FOOTNOTE and block.placement != "manual" else parts).append(f'<section class="pl-block" {attrs}>{badge}{content}</section>')
     if notes:
         parts.append('<section class="paper-footnotes" role="doc-endnotes" aria-label="脚注"><h2>脚注</h2>' + '\n'.join(notes) + '</section>')
     return "\n".join(parts)

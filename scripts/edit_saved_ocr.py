@@ -9,8 +9,18 @@ from app.services.ocr_edit import prepare_or_save
 if __name__ == "__main__":
     try:
         request = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-        artifact = prepare_or_save(Path(request["saved"]), Path(request["output"]), Path(request["workspace"]), request)
         from app.services.translation_layout import synchronize
+        if request.get("operation") == "retranslate":
+            ocr = Path(request["ocr"])
+            manifest = json.loads((ocr/"manifest.json").read_text(encoding="utf-8"))
+            previous = Path(request["translation"])
+            pair = json.loads((previous/"manifest.json").read_text(encoding="utf-8"))
+            if manifest["source_revision"] != request["revision"] or pair.get("layout_revision") != request["revision"] or set(pair.get("pending_blocks", [])) != set(request["texts"]):
+                raise ValueError("原文或译文已更新，请重新打开")
+            result = synchronize(previous, ocr, ocr, Path(request["output"]), request["texts"])
+            Path(request["result"]).write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+            sys.exit(0)
+        artifact = prepare_or_save(Path(request["saved"]), Path(request["output"]), Path(request["workspace"]), request)
         translations, warnings = [], []
         for index, entry in enumerate(request.get("translations", [])):
             try:

@@ -35,6 +35,8 @@ def block_html(block, render, *, first_abstract=True):
     if block.type in (BlockType.EQUATION_BLOCK,BlockType.EQUATION_INLINE):
         latex = clean_latex(strip_math_delimiters(block.content.latex or ""))
         display = block.type is BlockType.EQUATION_BLOCK
+        if not latex and block.content.image_path:
+            return render(render_markdown([block]))
         content = _official_math_node(latex,display=display)
         number = (block.content.note or "").strip().strip("()")
         if display and re.fullmatch(r"[A-Za-z]?\d+[A-Za-z]?",number) and r"\tag" not in latex:

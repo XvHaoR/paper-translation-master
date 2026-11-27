@@ -95,8 +95,8 @@ def start_vlm() -> bool:
     return False
 
 
-def ensure_wsl_keepalive(root: Path) -> None:
-    """Keep WSL alive while the accelerated OCR service is in use."""
+def ensure_wsl_keepalive(root: Path) -> bool:
+    """Keep WSL alive. Return whether this call created the helper."""
     pid_file = root / "scripts" / "wsl-keepalive.pid"
     try:
         pid = int(pid_file.read_text(encoding="ascii").strip())
@@ -108,7 +108,7 @@ def ensure_wsl_keepalive(root: Path) -> None:
             creationflags=NO_WINDOW,
         )
         if str(pid) in result.stdout:
-            return
+            return False
     except Exception:
         pass
 
@@ -120,6 +120,8 @@ def ensure_wsl_keepalive(root: Path) -> None:
         pid_file.write_text(str(proc.pid), encoding="ascii")
     except Exception:
         pass
+
+    return True
 
 
 def find_paperloom_python(root: Path) -> str | None:

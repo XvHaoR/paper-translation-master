@@ -2,7 +2,11 @@
 
 在 Zotero 中识别 PDF、对照原文阅读、编辑识别结果，并按需使用大模型翻译。识别结果和译文保存为 Zotero 附件，可离线打开。
 
-**0.7.1 融合预览版**将直接解析 PDF、本地 OCR 和云端 OCR 合到一个插件。可在设置中选择默认方案，或在单篇阅读器和批量窗口临时切换。
+**0.8.2 本地测试版** 将默认识别方案设为「本地 OCR」后，Zotero 工具栏会显示预热和关闭开关。手动预热会等待首次识别，单篇或批量识别完成后默认空闲 5 分钟释放引擎。可在设置中调整时长。[本地 OCR 使用说明](docs/UNIFIED_EDITION.md#本地-ocr-的预热和释放)
+
+MinerU 支持官方云端及自部署服务，可在 Zotero 中对照 PDF、编辑识别块、翻译和检索。[MinerU 配置步骤](docs/UNIFIED_EDITION.md#选择识别方案)
+
+**GitHub 上的 0.7.1 融合预览版**将直接解析 PDF、本地 OCR 和云端 OCR 合到一个插件。可在设置中选择默认方案，或在单篇阅读器和批量窗口临时切换。
 
 [下载 Windows x64 完整包](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.7.1/paper-translation-master-windows-x64-0.7.1.zip) · [查看 Release 和校验值](https://github.com/XvHaoR/paper-translation-master/releases/tag/v0.7.1) · [完整安装说明](docs/UNIFIED_EDITION.md)
 

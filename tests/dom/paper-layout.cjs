@@ -106,9 +106,18 @@ test('editor-types',async()=>{
   assert.equal(view.window.PaperLoomEditor.draft.changes.note.role,'figure_caption');
   assert.ok(!('markdown' in view.window.PaperLoomEditor.draft.changes.p));
   assert.ok(!('markdown' in view.window.PaperLoomEditor.draft.changes.note));
+  const transfer={setData(){}};
+  const drag=new view.window.Event('dragstart',{bubbles:true});
+  Object.defineProperty(drag,'dataTransfer',{value:transfer});
+  block(doc,'note').querySelector('[data-action="editor-move"]').dispatchEvent(drag);
+  const drop=new view.window.Event('drop',{bubbles:true,cancelable:true});
+  Object.defineProperties(drop,{clientY:{value:-1},dataTransfer:{value:transfer}});
+  block(doc,'p').dispatchEvent(drop);
+  assert.deepEqual([...doc.querySelectorAll('.pl-edit-stage .pl-block')].map(n=>n.dataset.blockId),['note','p','abstract']);
   let saved;view.window.PaperLoomOffline.action=async data=>{saved=data;};
   doc.querySelector('[data-action="editor-save"]').click();await new Promise(resolve=>setImmediate(resolve));
   assert.equal(saved.type,'save-ocr-edits');assert.equal(saved.changes.note.role,'figure_caption');
+  assert.deepEqual(Array.from(saved.moved),['note']);assert.deepEqual(Array.from(saved.order),['note','p','abstract']);
   doc.querySelector('[data-action="editor-cancel"]').click();assert.equal(doc.body.classList.contains('pl-editing'),false);
   assert.equal(Object.keys(view.window.PaperLoomEditor.draft.changes).length,0);
   view.window.close();

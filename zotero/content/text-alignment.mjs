@@ -6,15 +6,21 @@ export function sentences(text, locale) {
     .filter(part => part.text);
 }
 
-export function alignSelection(source, target, start, end, original = false) {
+export function alignedSourceRange(source, target, start, end, original = false) {
   if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end > target.length) return null;
-  if (original) return target.slice(start, end).trim();
+  if (original) return {start, end, text: target.slice(start, end).trim()};
   const left = sentences(source, "en"), right = sentences(target, "zh");
   // Translations can merge/split sentences. Do not guess a sentence in that case.
   if (!left.length || left.length !== right.length) return null;
   const indexes = right.map((part, index) => part.end > start && part.start < end ? index : -1).filter(index => index >= 0);
   if (!indexes.length || indexes.length > 3) return null;
-  return left.slice(indexes[0], indexes.at(-1) + 1).map(part => part.text).join(" ");
+  const first = left[indexes[0]], last = left[indexes.at(-1)];
+  return {start: first.start, end: last.end, text: source.slice(first.start, last.end).trim()};
+}
+
+export function alignSelection(source, target, start, end, original = false) {
+  const match = alignedSourceRange(source, target, start, end, original);
+  return match?.text.replace(/\s+/g, " ") || null;
 }
 
 export function textModel(root) {

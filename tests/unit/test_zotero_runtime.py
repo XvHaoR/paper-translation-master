@@ -28,6 +28,99 @@ const Zotero={Promise:{delay:async()=>{}},getMainWindow:()=>null};
     assert "runtime-test-complete" in process.stdout, "An awaited task never completed"
 
 
+def test_only_local_default_displays_start_stop_in_toolbar_and_tools():
+    run_js(["recognition", "service", "local-ocr-control", "ui"], """
+PaperLoom.config = {unified:true};
+const nodes = new Map();
+const doc = {getElementById(id) {
+  if (!nodes.has(id)) nodes.set(id, {removeAttribute(){}});
+  return nodes.get(id);
+}};
+PaperLoom.windows.set({document:doc}, []);
+const button = doc.getElementById("paperloom-start-service");
+const menu = doc.getElementById("paperloom-local-ocr-control");
+for (const mode of ["layout", "cloud", "mineru", "mineru-local", "local", "layout"]) {
+  prefs.recognitionMode = mode;
+  PaperLoom.UI.refreshService();
+  assert.equal(button.hidden, mode !== "local");
+  assert.equal(menu.hidden, mode !== "local");
+  if (!button.hidden) assert.equal(button.textContent, "预热本地 OCR");
+}
+""")
+
+
+def test_manual_prewarm_waits_for_first_use_then_respects_the_entire_local_queue():
+    run_js(["service", "local-ocr-control", "tasks"], """
+const control = PaperLoom.LocalOCRControl, local = PaperLoom.LocalOCR;
+PaperLoom.UI.refreshService = () => {};
+const timers = new Map();
+globalThis.setTimeout = (fn, delay) => { const handle = {}; timers.set(handle,{fn,delay}); return handle; };
+globalThis.clearTimeout = handle => timers.delete(handle);
+let starts=0, stops=0, probes=0, ready;
+local.ensure = async () => { if (!local.owned) starts++; local.owned=true; local.state={phase:"ready"}; };
+local.stop = async () => { stops++; local.owned=false; local.state={phase:"stopped"}; };
+PaperLoom.request = async () => { probes++; await new Promise(resolve => ready=resolve); };
+const warming = control.prewarm({});
+await Promise.resolve();
+const a={}, b={};
+control.reserve(b);
+const active = control.begin(a);
+ready(); await Promise.all([warming,active]);
+assert.equal(starts,1); assert.equal(probes,1);
+control.finish(a); assert.equal(timers.size,0);
+await control.begin(b); control.finish(b);
+assert.equal(timers.size,1);
+const expiredEarly = [...timers.values()][0];
+assert.equal(expiredEarly.delay,300000);
+const c={}; control.reserve(c); expiredEarly.fn(); assert.equal(stops,0);
+await control.begin(c); prefs.localOCRIdleMinutes=2; control.finish(c);
+const timer = [...timers.values()][0]; assert.equal(timer.delay,120000);
+timer.fn(); await control.closing; assert.equal(stops,1); assert.equal(timers.size,0);
+PaperLoom.request=async()=>{};
+await control.prewarm({});
+assert.equal(starts,2); assert.equal(timers.size,0);
+await control.stop(); assert.equal(stops,2);
+local.owned=false; local.state={phase:"ready"}; control.used=true; control.schedule();
+assert.equal(timers.size,0); assert.equal(control.status()[0],"断开本地 OCR");
+""")
+
+
+def test_cancel_startup_before_a_lease_exists_and_allow_a_new_start():
+    run_js(["service"], """
+const local=PaperLoom.LocalOCR;
+PaperLoom.config={unified:true}; PaperLoom.UI.refreshService=()=>{};
+let releaseCheck, calls=0;
+local.runtime={}; local.configuredURL=()=>"http://127.0.0.1:8765";
+local.online=async()=>{if (++calls===1) return new Promise(resolve=>releaseCheck=resolve); return true;};
+local.python=()=>assert.fail("cancelled launch must not spawn");
+const first=local.ensure(); const checked=assert.rejects(first,/取消/);
+const stopping=local.stop({force:true,disconnect:true});
+const next=local.ensure();
+releaseCheck(true); await checked; await stopping; await next;
+assert.equal(calls,2); assert.equal(local.state.phase,"ready"); assert.equal(local.instance,null);
+await local.stop({force:true,disconnect:true}); assert.equal(local.state.phase,"stopped");
+""")
+
+
+def test_manual_stop_only_cancels_work_that_still_needs_local_ocr():
+    run_js(["recognition","service","local-ocr-control","tasks"], """
+const pl=PaperLoom, ctl=pl.LocalOCRControl, tasks=pl.Tasks;
+pl.config={unified:true}; pl.UI.refreshService=()=>{};
+pl.Store.get=source=>source.id===2?{ocr:{attachmentID:20}}:null;
+const state=[]; pl.Store.set=(source,kind,status)=>state.push([source.id,kind,status.state]);
+tasks.drain=()=>{};
+const promises=[["ocr","local",1],["translate","local",2],["ocr","layout",3],["title","",4],["translate","local",5]]
+  .map(([kind,mode,id])=>tasks.enqueue({id},kind,null,{mode}).catch(e=>e));
+pl.LocalOCR.stop=async()=>{};
+await ctl.stop();
+assert.deepEqual(tasks.queue.map(t=>t.source.id),[2,3,4]);
+assert.equal(ctl.reservations.size,0);
+assert.match((await promises[0]).message,/手动停止/);
+assert.match((await promises[4]).message,/手动停止/);
+assert(state.some(([id,kind,value])=>id===1&&kind==="ocr"&&value==="failed"));
+""")
+
+
 def test_attachment_grouping_deduplicates_requests_and_rejects_ambiguous_links():
     run_js(["attachment-groups"], """
 const groups = PaperLoom.AttachmentGroups;
@@ -252,6 +345,49 @@ PaperLoom.Service.instance='first';assert.equal(await PaperLoom.Service.online()
 """)
 
 
+def test_local_annotation_comments_are_language_scoped_and_editable_without_pdf_writes():
+    run_js(["reader-annotations"], """
+const pdf={id:1,key:'pdf',isEditable:()=>true,getAnnotations:()=>[]},record={};
+Zotero.Items={get:()=>pdf};Zotero.DataObjectUtilities={generateKey:()=> 'TESTMARK'};
+PaperLoom.Store={ensure:()=>record,get:()=>record,flush:async()=>{}};
+PaperLoom.ReaderSession={matches:()=>true};
+PaperLoom.ReaderUI.readerActor=()=>({sendQuery:async()=>({page:1})});
+let comment='我的批注';globalThis.Services={prompt:{prompt:(_win,_title,_text,out)=>{out.value=comment;return true;}}};
+const state={reader:{itemID:1},kind:'translate',saved:{hash:'pdf'},frame:{browsingContext:{currentWindowGlobal:{}}}};
+const ctrl=PaperLoom.ReaderAnnotations, data={block:'p',target:{quote:'译文'},note:true};
+await ctrl.save(state,data);assert.equal(ctrl.list(state)[0].comment,comment);
+comment='修改批注';await ctrl.save(state,data);assert.equal(ctrl.list(state).length,1);assert.equal(ctrl.list(state)[0].comment,comment);
+state.kind='ocr';assert.equal(ctrl.list(state).length,0);
+state.kind='translate';await ctrl.save(state,{...data,note:false,remove:true});assert.equal(ctrl.list(state).length,0);
+state.kind='ocr';await ctrl.save(state,{block:'p',localSource:true,source:{quote:'中文原文'},note:true});
+assert.equal(ctrl.list(state)[0].scope,'ocr');
+assert.equal(pdf.getAnnotations().length,0);
+""")
+
+
+def test_quick_action_targets_focused_paper_without_opening_picker():
+    run_js(["tasks"], """
+const focused={id:2}, first={id:1};
+const win={ZoteroPane:{getSelectedItems:()=>[first,focused],itemsView:{selection:{focused:3},getRow:()=>({ref:focused})}}};
+PaperLoom.Tasks.runItems=async(owner,action,items,mode,title)=>{assert.equal(owner,win);
+  assert.equal(action,'ocr-translate');assert.deepEqual(items,[focused]);assert.equal(title,true);};
+await PaperLoom.Tasks.selected(win,'ocr-translate');
+""")
+
+
+def test_translate_waiting_on_failed_ocr_leaves_other_papers_independent():
+    run_js(["tasks"], """
+const tasks=PaperLoom.Tasks, a={id:1}, b={id:2}, done=[];
+let fail;tasks.ocrCore=()=>new Promise((_resolve,reject)=>fail=reject);
+tasks.translateCore=async task=>{done.push(task.source.id);return {};};
+const ocr=tasks.enqueue(a,'ocr'), translation=tasks.enqueue(a,'translate');
+const results=Promise.allSettled([ocr,translation]);
+await tasks.enqueue(b,'translate');fail(new Error('OCR fixture failed'));
+assert.deepEqual((await results).map(r=>r.status),['rejected','rejected']);
+assert.deepEqual(done,[2]);
+""")
+
+
 def test_batch_deduplicates_and_continues_after_one_failure():
     run_js(["tasks"], """
 const sources=[1,2,3].map(id=>({id,getField:()=>`paper ${id}`}));
@@ -259,7 +395,7 @@ const task=PaperLoom.Tasks;task.sourceFor=async item=>sources[item-1];
 let running=0,max=0;const seen=[];
 task.ocrCore=async task=>{running++;max=Math.max(max,running);seen.push(task.source.id);await Promise.resolve();running--;if(task.source.id===2)throw new Error('Broken PDF');return {attachment:{}};};
 const window={ZoteroPane:{getSelectedItems:()=>[1,1,2,3]}};
-await assert.rejects(task.selected(window,'ocr'),/Broken PDF/);
+await assert.rejects(task.runItems(window,'ocr',window.ZoteroPane.getSelectedItems()),/Broken PDF/);
 assert.deepEqual(seen,[1,2,3]);assert.equal(max,1);
 assert.equal(task.lastBatch.done,3);assert.equal(task.lastBatch.success,2);assert.equal(task.lastBatch.failed,1);
 assert.equal(task.lastBatch.finished,true);assert.equal(task.pending.size,0);
@@ -301,12 +437,14 @@ globalThis.Services = {env: {get: () => '/local'}};
 globalThis.PathUtils = {join: (...parts) => parts.join('/')};
 const runtime = PaperLoom.Runtime;
 const gpu = {backend:'wsl', projectRoot:'/legacy/service', pythonPath:'/legacy/python', descriptor:'/legacy/runtime.json'};
-const cpu = {backend:'local', projectRoot:'/cpu/service', pythonPath:'/cpu/python'};
+const cpu = {backend:'local', projectRoot:'/cpu/service', pythonPath:'/cpu/python', descriptor:'/cpu/runtime.json',
+  environment:{PAPERBRIDGE_WORKSPACE:'/cpu/documents'}};
 runtime.named = async name => ({PaperTranslationMaster:gpu, PaperTranslationMasterRapidOCR:cpu,
   PaperTranslationMasterUnified:{backend:'local', projectRoot:'/unified/service', pythonPath:'/unified/python'}})[name];
 assert.deepEqual(await runtime.localOCR('auto'), {...gpu, projectRoot:'/unified/service',
   workspace:'/local/PaperTranslationMasterUnified/local-wsl', ocrMode:'official', pinned:true});
-assert.deepEqual(await runtime.localOCR('cpu'), {...cpu, ocrMode:'rapidocr', pinned:true});
+assert.deepEqual(await runtime.localOCR('cpu'), {...cpu, projectRoot:'/unified/service', workspace:'/cpu/documents',
+  ocrMode:'rapidocr', pinned:true});
 assert.equal(gpu.projectRoot, '/legacy/service');
 """)
 
@@ -322,7 +460,7 @@ assert.equal(batch.total,1);assert.equal(batch.success,1);assert.equal(batch.fin
 
 
 def test_picker_lists_papers_without_processing_and_disables_missing_files():
-    run_js(["tasks","batch-picker"], """
+    run_js(["title-translations","tasks","batch-picker"], """
 const IOUtils={exists:async path=>path!=='missing'};globalThis.IOUtils=IOUtils;
 const paper=(id,title)=>({id,libraryID:1,deleted:false,isRegularItem:()=>true,isAttachment:()=>false,getField:key=>({title,firstCreator:'Author',date:'2025'})[key]||''});
 const first=paper(1,'First'),missing=paper(2,'Missing'),noPDF=paper(3,'No PDF');
@@ -335,6 +473,7 @@ const owner={ZoteroPane:{getSelectedItems:()=>[first,one],itemsView:{getSortedIt
 const rows=await PaperLoom.BatchPicker.rows(owner);
 assert.equal(rows.length,3);assert.equal(rows[0].available,true);assert.equal(rows[0].preselected,true);
 assert.equal(rows[1].available,false);assert.match(rows[1].reason,/缺失/);assert.equal(rows[2].reason,'无 PDF');
+assert.equal(rows[2].titleAvailable,true);
 """)
 
 
@@ -377,7 +516,7 @@ def test_editing_open_refreshes_old_controls_but_never_replaces_the_overlay():
     run_js(["editing"], """
 const source={id:1,libraryID:1},reader={itemID:1};
 Zotero.Items={get:()=>source};Zotero.Libraries={get:()=>({editable:true,filesEditable:true})};
-PaperLoom.config={minimumExportSchema:12};PaperLoom.Tasks={pending:new Map()};
+PaperLoom.config={minimumExportSchema:13};PaperLoom.Tasks={forSource:()=>null,queue:[]};
 const old={attachmentID:10,attachment:{getFilePathAsync:async()=>'/saved/index.html'}},updated={attachmentID:11};
 PaperLoom.Store.saved=async()=>old;
 globalThis.PathUtils={parent:()=>'/saved',join:(...args)=>args.join('/')};
@@ -389,7 +528,7 @@ PaperLoom.ReaderUI.showSaved=async(r,saved,kind)=>{assert.equal(kind,'ocr');asse
 PaperLoom.ReaderUI.states.set(reader,{frame:{browsingContext:{currentWindowGlobal:{}}}});
 PaperLoom.ReaderUI.readerActor=()=>({sendQuery:async(name,data)=>{assert.equal(name,'editor-command');assert.equal(data.command,'open');opens++;}});
 await PaperLoom.Editing.open(reader);assert.equal(saves,1);assert.equal(opens,1);
-schema=12;await PaperLoom.Editing.open(reader);assert.equal(saves,1);assert.equal(opens,2);
+schema=14;await PaperLoom.Editing.open(reader);assert.equal(saves,1);assert.equal(opens,2);
 """)
 
 

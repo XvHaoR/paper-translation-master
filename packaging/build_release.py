@@ -30,7 +30,7 @@ ROOT_FILES = {"pyproject.toml", "release.json", "README.md", "CHANGELOG.md", "LI
 SOURCE_ROOT_FILES = ROOT_FILES | {".gitignore", "Install.cmd"}
 PUBLIC_DOCS = {"docs/INSTALLATION.md", "docs/RELEASING.md", "docs/READER_ARCHITECTURE.md", "docs/RAPIDOCR_EDITION.md",
                "docs/UNIFIED_EDITION.md", "docs/MIGRATION.md", "docs/MACOS.md"}
-SOURCE_SCRIPTS = {"scripts/build_cloud_bundle.py", "scripts/build_macos_bundle.py", "scripts/install_unified.py"}
+SOURCE_SCRIPTS = {"scripts/build_cloud_bundle.py", "scripts/build_macos_bundle.py", "scripts/bundle_semantics.py", "scripts/install_unified.py"}
 PRIVATE_PATTERNS = [
     re.compile(rb"[A-Za-z]:[\\/]+(?:Users[\\/]+(?!Public(?:[\\/]|$)|Default(?:[\\/]|$))[^\\/\s\"']+[\\/]+|claude_test[\\/]+)", re.I),
     re.compile(rb"(?:sk-[A-Za-z0-9_-]{24,}|AIza[A-Za-z0-9_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,})"),
@@ -45,7 +45,7 @@ def eligible(relative: str, *, source: bool = False) -> bool:
     if relative in (SOURCE_ROOT_FILES if source else ROOT_FILES) or relative in PUBLIC_DOCS:
         return True
     if relative.startswith("app/"):
-        return (path.suffix == ".py"
+        return (path.suffix == ".py" or relative == "app/static/ocr-warmup.pdf"
                 or (relative.startswith("app/static/") and path.suffix in STATIC_EXTENSIONS)
                 or (relative.startswith("app/rendering/templates/") and path.suffix in {".html", ".j2", ".jinja2"})
                 or (relative.startswith("app/static/mathjax/") and path.name in {"LICENSE", "NOTICE"}))
@@ -205,18 +205,13 @@ def build_release(*, root: Path = ROOT, output: Path | None = None,
         "首次模型下载和安装可能需要较长时间，安装窗口会显示进度及错误日志。\n",
         encoding="utf-8")
     if release.get("unified"):
-        notes.write_text(f"## 论文翻译大师 {version} · 融合预览版\n\n" +
+        notes.write_text(f"## 论文翻译大师 {version}\n\n" +
             "".join(f"- {item}\n" for item in release["changes"]) +
-            "\n### 下载与安装\n\n"
-            "1. 下载 Windows x64 完整 ZIP，解压到固定目录后运行 `Install.cmd`。\n"
-            "2. 在 Zotero 的「工具 → 插件 → 从文件安装」中选中包内 XPI，然后重启。\n"
-            "3. 设置中选择识别方案。本地 OCR 可继续使用已部署的 GPU／CPU 引擎，"
-            "云端 OCR 需填写个人 [AI Studio Access Token](https://aistudio.baidu.com/account/accessToken)。\n\n"
-            "直接解析 PDF 使用本机文字层。扫描 PDF 请使用本地或云端 OCR。"
-            "云端会把所选 PDF 上传至飞桨，单篇上限 50 MB。\n\n"
-            "已保存结果可以离线阅读。首次启动会整理能唯一匹配原 PDF 的独立附件，并在 Zotero 配置目录保存原层级记录。\n\n"
-            "预览版采用手动更新。已有本地 GPU／CPU 安装器继续在 0.5.0 Release 提供。"
-            "WSL 须有可启动的 FastDeploy 服务。详见仓库的安装与升级说明。下载可用 `SHA256SUMS` 核对。\n",
+            "\nWindows x64 请下载 windows-x64 完整包并运行 `Install.cmd`。Apple 芯片 Mac（macOS 14+）"
+            "请下载 macos-arm64 完整包并运行 `Install.command`。然后在 Zotero 中从文件安装包内的 XPI。"
+            "升级也需更新运行环境。可用 `SHA256SUMS` 核对文件。\n\n"
+            f"[图文使用教程](https://github.com/{release['repository']}/blob/v{version}/docs/TUTORIAL.md) · "
+            f"[Languages and downloads](https://github.com/{release['repository']}/blob/v{version}/README.md)\n",
             encoding="utf-8")
     elif release.get("cloudPreview"):
         notes.write_text(f"论文翻译大师 · 云端版 {version}\n\n" +

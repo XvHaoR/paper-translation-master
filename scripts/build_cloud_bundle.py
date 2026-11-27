@@ -42,6 +42,10 @@ def build(output, embed):
     deps = project["dependencies"]
     if unified:
         deps += project["optional-dependencies"]["layout"]
+        if release.get("semanticSearch"):
+            from bundle_semantics import install_model
+            deps += project["optional-dependencies"]["semantic"]
+            install_model(runtime)
     stack, used = list(map(Requirement, deps)), {}
     while stack:
         req = stack.pop()
@@ -63,6 +67,9 @@ def build(output, embed):
             if source.is_file():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, target)
+    if release.get("semanticSearch"):
+        from bundle_semantics import verify_model
+        verify_model(python / "python.exe", runtime)
     builder.BUILDER.build(portable=True, output=output / f"{release['slug']}-{release['version']}.xpi")
     if unified:
         shutil.copyfile(ROOT / "scripts/install_unified.py", output / "install.py")

@@ -90,11 +90,12 @@
       return null;
     },
     async localEngine(runtime) {
-      if (runtime.backend !== "wsl") return { ...runtime, pinned:true };
+      if (runtime.backend !== "wsl" && !runtime.descriptor) return { ...runtime, pinned:true };
       const unified = await this.resolve();
       // Keep the registered model environment and run the compatible service from this release.
       return { ...runtime, projectRoot:unified.projectRoot,
-        workspace:PathUtils.join(this.dataDirectory(this.unifiedDirectory), "local-wsl"), pinned:true };
+        workspace:runtime.backend === "wsl" ? PathUtils.join(this.dataDirectory(this.unifiedDirectory), "local-wsl")
+          : runtime.environment?.PAPERBRIDGE_WORKSPACE || PathUtils.join(runtime.projectRoot, "workspace"), pinned:true };
     },
     async localOCR(selected = PL.pref("unifiedLocalEngine", "auto")) {
       if (selected === "custom") {

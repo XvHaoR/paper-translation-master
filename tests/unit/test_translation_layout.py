@@ -83,6 +83,32 @@ def test_legacy_type_only_edits_are_verified_against_saved_english_instead_of_re
     assert result["changed"] and result["artifact"]["ocr_revision"]
 
 
+@pytest.mark.parametrize("legacy", [False, True])
+def test_move_delete_and_selective_translation(saved_pair, tmp_path, legacy):
+    ocr, translation, manifest = saved_pair
+    if legacy:
+        (translation / "translation-state.json").unlink()
+    overlay = json.loads((ocr / "editor.json").read_text(encoding="utf-8"))
+    ids = [b["id"] for b in overlay["blocks"]]
+    ids.remove("q")
+    ids.insert(0, "q")
+    edited, synced, refreshed = (tmp_path / name for name in ("edited", "synced", "refreshed"))
+    revision = prepare_or_save(ocr, edited, tmp_path, {"save": True, "base_revision": manifest["edit_revision"],
+        "order": ids, "moved": ["q"], "changes": {"eq": {"deleted": True}, "q": {"markdown": "Changed for review."}}})
+    result = synchronize(translation, ocr, edited, synced)
+    assert result["pending"] == ["q"]
+    page = (synced / "index.html").read_text(encoding="utf-8")
+    assert page.index('data-block-id="q"') < page.index('data-block-id="p"')
+    assert 'data-block-id="eq"' not in page and "中文：A sentence" in page
+    assert "Another sentence." in page and "Changed for review." not in page
+    result = synchronize(synced, edited, edited, refreshed, replacements={"q": "修改后的译文。"})
+    assert not result["pending"] and result["artifact"]["ocr_revision"] == revision["source_revision"]
+    page = (refreshed / "index.html").read_text(encoding="utf-8")
+    assert '<div class="pl-source" lang="en"><p>Changed for review.</p>' in page
+    assert '<div class="pl-target"><p>修改后的译文。</p>' in page and 'data-source-text="Another sentence."' in page
+    assert 'data-bbox="[0.1, 0.2, 0.3, 0.4]"' in page
+
+
 def test_legacy_already_retyped_ocr_refreshes_translation_without_another_role_change(saved_pair, tmp_path):
     ocr, translation, manifest = saved_pair
     (translation / "translation-state.json").unlink()

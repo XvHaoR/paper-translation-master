@@ -6,6 +6,7 @@
       state.lastBridgeAction = data?.type;
       if (!PL.alive || !state.saved || !PL.ReaderSession.matches(state)) throw new Error("阅读窗口已更新，请重试");
       if (!data || typeof data !== "object") throw new Error("阅读操作无效");
+      if (data.type === "annotation-save") return PL.ReaderAnnotations.save(state, data);
       if (data.type === "reader-scroll") return PL.ScrollSync.fromReader(state,data);
       if (data.type === "selection-clear") {
         state.locationRequest=Symbol("selection-cleared");
@@ -24,7 +25,7 @@
       }
       if (data.type === "excel") return PL.Artifacts.exportTables(state.reader._window, data.items);
       if (data.type === "save-ocr-edits") return PL.Editing.save(state.reader, data).then(()=>true);
-      if (data.type === "translation-mode") { await PL.ReaderUI.translationMode(data.mode === "translation" ? "translation" : "bilingual"); return true; }
+      if (data.type === "translation-mode") { await PL.ReaderUI.translationMode(state.reader, data.mode); return true; }
       if (data.type === "locate") {
         if (state.mode !== "split") {
           if (data.revealPDF === true) await PL.ReaderUI.setMode(state.reader, "split");

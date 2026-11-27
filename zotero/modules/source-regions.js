@@ -126,7 +126,13 @@
         if (state.frame!==frame) return null;
         await this.resolve(state,block);
       }
-      return hit() || null;
+      const exact = hit();
+      if (exact) return exact;
+      // Allow narrow interline gaps within the same column. Never jump across whitespace between columns.
+      return [...cache.values()].flatMap(block => block.regions.filter(region => region.page === point.page
+        && point.x >= region.bbox[0] && point.x <= region.bbox[2]).map(({bbox}) => ({
+          block, gap:Math.max(0, bbox[1]-point.y, point.y-bbox[3]), area:area(bbox)
+        }))).filter(match => match.gap <= .007).sort((a,b) => a.gap-b.gap || a.area-b.area)[0]?.block || null;
     },
   };
 })();

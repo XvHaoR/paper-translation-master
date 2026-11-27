@@ -79,12 +79,13 @@ def signature(fragment):
     return hashlib.sha256(re.sub(r'>\s+<', '><', fragment).strip().encode()).hexdigest()
 
 
-def synchronize(saved: Path, old_ocr: Path, new_ocr: Path, output: Path) -> dict:
+def synchronize(saved: Path, old_ocr: Path, new_ocr: Path, output: Path, replacements=None) -> dict:
     from app.services.translation_export import reader_page, EXPORT_VERSION, _safe_html
     from app.services.offline_reader import copy_runtime
     from app.rendering.markdown_exporter import render_markdown, SKIP_TYPES
     from app.rendering.paper_blocks import block_html
     from app.models.ir import BlockType, BlockContent, SourceInfo
+    from app.services.translator import TRANSLATABLE_TYPES
 
     manifest = json.loads((saved / "manifest.json").read_text(encoding="utf-8"))
     previous = json.loads((old_ocr / "manifest.json").read_text(encoding="utf-8"))
@@ -142,25 +143,54 @@ def synchronize(saved: Path, old_ocr: Path, new_ocr: Path, output: Path) -> dict
         if signatures is not None:
             return signatures.get(original.id) == signature(block_html(newer, _safe_html))
         return same_content(original, newer)
+    source_by_id = {b.id: b for b in originals}
     translated_by_id = {b.id: b for b in translated}
-    changed = []
-    for original in originals:
-        newer = new_blocks.get(original.id)
-        target = translated_by_id.get(original.id)
-        if newer is None or target is None or not matches(original, newer):
-            continue
-        for name in ("type", "layout_label", "heading_level"):
-            if getattr(original, name) != getattr(newer, name):
-                changed.append(original.id)
-            setattr(original, name, getattr(newer, name))
-            setattr(target, name, getattr(newer, name))
-    if not changed:
+    originals, translated, pending = [], [], []
+    missing_before = set(manifest.get("pending_new_blocks", []))
+    missing_now = []
+    replacements = replacements or {}
+    for ident, newer in new_blocks.items():
+        original, target = source_by_id.get(ident), translated_by_id.get(ident)
+        requires_text = newer.type.value in TRANSLATABLE_TYPES and bool((newer.content.text or "".join(newer.content.items or [])).strip())
+        equal = original and target and matches(original, newer) and ident not in missing_before
+        pair = newer.model_copy(deep=True)
+        output_block = newer.model_copy(deep=True)
+        if ident in replacements or not requires_text:
+            if ident in replacements:
+                output_block.content.text = replacements[ident]
+                if newer.type is BlockType.LIST:
+                    output_block.content.items = replacements[ident].splitlines()
+            for fragments in (targets, sources):
+                if fragments is not None:
+                    fragments.pop(ident, None)
+            if signatures is not None:
+                signatures[ident] = signature(block_html(newer, _safe_html))
+        elif equal:
+            output_block.content = target.content.model_copy(deep=True)
+        else:
+            pending.append(ident)
+            if original and target and ident not in missing_before:
+                # Keep the previous English with its actual translation until the user accepts a refresh.
+                pair.content, output_block.content = original.content, target.content
+            else:
+                missing_now.append(ident)
+                output_block.content = BlockContent(text="〔待翻译〕", items=["〔待翻译〕"] if newer.type is BlockType.LIST else None)
+        originals.append(pair)
+        translated.append(output_block)
+    if not replacements and manifest.get("layout_revision") == current["source_revision"]:
+        return {"changed": False, "pending": pending}
+    if manifest.get("ocr_revision") == current["source_revision"] and not pending and not replacements:
         return {"changed": False}
-    compared_ids = {ident for ident, block in new_blocks.items() if signatures is None or (block.type not in SKIP_TYPES and block_html(block, _safe_html).strip())}
-    all_current = was_current and compared_ids == {b.id for b in originals} and all(matches(b, new_blocks[b.id]) for b in originals)
+    all_current = not pending
     identity = {"base": manifest["id"], "layout_revision": current["source_revision"]}
+    if replacements:
+        identity["replacements"] = replacements
     ident = hashlib.sha256(canonical(identity)).hexdigest()[:24]
     shutil.copytree(saved, output, ignore=shutil.ignore_patterns("bundle.zip"))
+    for folder in ("media", "crops"):
+        assets = new_ocr / "assets" / folder
+        if assets.is_dir():
+            shutil.copytree(assets, output / "assets" / folder, dirs_exist_ok=True)
     pairs = {"schema": 1, "source_verified": all_current, "baseline_verified": was_current,
              "originals": [b.model_dump(mode="json") for b in originals],
              "translated": [b.model_dump(mode="json") for b in translated]}
@@ -169,15 +199,23 @@ def synchronize(saved: Path, old_ocr: Path, new_ocr: Path, output: Path) -> dict
         pairs["source_html"] = sources
         pairs["source_signatures"] = signatures
     (output / "translation-state.json").write_bytes(canonical(pairs))
-    markdown = (saved / "translation.md").read_text(encoding="utf-8") if targets is not None else render_markdown(translated)
-    original_md = (saved / "original.md").read_text(encoding="utf-8") if targets is not None else render_markdown(originals)
+    def markdown_for(blocks, fragments):
+        if fragments is None:
+            return render_markdown(blocks)
+        from app.rendering.paper_blocks import retype_fragment
+        # Raw inline HTML is valid Markdown and preserves legacy math, tables and links.
+        return "\n\n".join(retype_fragment(fragments[b.id], b, first_abstract=False) if b.id in fragments
+                           else render_markdown([b]) for b in blocks if b.type not in SKIP_TYPES)
+    markdown = markdown_for(translated, targets)
+    original_md = markdown_for(originals, sources)
     (output / "translation.md").write_text(markdown, encoding="utf-8")
     (output / "original.md").write_text(original_md, encoding="utf-8")
     (output / "index.html").write_text(reader_page(manifest["title"], manifest.get("lang_to", "zh"), markdown,
         original_md, blocks=translated, originals=originals, target_html=targets, source_html=sources), encoding="utf-8")
     copy_runtime(output)
-    result = {**manifest, "id": ident, "schema": EXPORT_VERSION, "layout_revision": current["source_revision"]}
+    result = {**manifest, "id": ident, "schema": EXPORT_VERSION, "layout_revision": current["source_revision"],
+              "pending_blocks": pending, "pending_new_blocks": missing_now, "complete": all_current}
     if all_current:
-        result["ocr_revision"] = current["source_revision"] if current.get("edited") else None
+        result["ocr_revision"] = current["source_revision"]
     (output / "manifest.json").write_bytes(canonical(result))
-    return {"changed": True, "artifact": result, "output": str(output)}
+    return {"changed": True, "pending": pending, "artifact": result, "output": str(output)}

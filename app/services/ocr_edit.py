@@ -65,8 +65,17 @@ def active_blocks(payload: dict, changes: dict, insertions: list) -> list[Block]
         added.setdefault(before, []).append(Block(id=ident, type=BlockType.HEADING, page=anchor.page,
             heading_level=len(match[1]), layout_label="manual_heading", bbox=[],
             content=BlockContent(text=match[2]), source=SourceInfo(page=anchor.page)))
+    order = payload.get("order") or [block.id for block in base]
+    if not isinstance(order, list) or any(not isinstance(key, str) for key in order) or len(order) != len(base) or set(order) != base_ids:
+        raise ValueError("移动顺序与当前 OCR 的内容块不一致，请重新打开编辑器")
+    moved = payload.get("moved", [])
+    if not isinstance(moved, list) or any(not isinstance(key, str) or key not in base_ids for key in moved):
+        raise ValueError("移动的内容块无效")
+    moved = set(moved)
+    by_id = {block.id: block for block in base}
     result = []
-    for original in base:
+    for ident in order:
+        original = by_id[ident]
         result.extend(added.get(original.id, []))
         patch = changes.get(original.id, {})
         if not isinstance(patch, dict) or set(patch) - {"markdown", "role", "deleted"}:
@@ -84,6 +93,9 @@ def active_blocks(payload: dict, changes: dict, insertions: list) -> list[Block]
         if kind not in EDIT_TYPES or (original.type is BlockType.FIGURE) != (kind == "figure"):
             raise ValueError("图片类型不能转换为文本")
         block.type = BlockType(kind)
+        if original.id in moved or new_role != role(original):
+            block.anchor_id = block.anchor_kind = None
+            block.placement = "manual" if original.id in moved else None
         if new_role in ROLES:
             block.layout_label = "table_title" if new_role == "table_caption" else "figure_title"
         structural = {"equation_block", "equation_inline", "table", "list"}
@@ -123,6 +135,16 @@ def active_blocks(payload: dict, changes: dict, insertions: list) -> list[Block]
     for order, block in enumerate(result):
         block.order = order
         block.reading_order = order
+        if block.id in moved and block.type is BlockType.CAPTION:
+            media = BlockType.TABLE if role(block) == "table_caption" else BlockType.FIGURE
+            steps = (1, -1) if media is BlockType.TABLE else (-1, 1)
+            for step in steps:
+                index = order + step
+                while 0 <= index < len(result) and role(result[index]) == role(block):
+                    index += step
+                if 0 <= index < len(result) and result[index].type is media:
+                    block.anchor_id, block.anchor_kind = result[index].id, media.value
+                    break
     return result
 
 
@@ -178,10 +200,12 @@ def prepare_or_save(saved: Path, output: Path, workspace: Path, request: dict) -
     if request.get("save"):
         payload["changes"] = request.get("changes", {})
         payload["insertions"] = request.get("insertions", [])
+        payload["order"] = request.get("order", payload.get("order", []))
+        payload["moved"] = request.get("moved", payload.get("moved", []))
     blocks = active_blocks(payload, payload["changes"], payload["insertions"])
     meta = write_editor_files(payload, blocks, output)
     revision = meta["source_revision"]
-    edited = bool(payload["changes"] or payload["insertions"])
+    edited = bool(payload["changes"] or payload["insertions"] or payload.get("moved"))
     markdown = render_markdown(blocks)
     (output / "ocr.md").write_text(markdown, encoding="utf-8")
     (output / "index.html").write_text(reader_page(manifest["title"], "en", markdown, blocks=blocks, editor=payload), encoding="utf-8")

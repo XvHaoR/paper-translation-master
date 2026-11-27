@@ -106,6 +106,33 @@ def test_unhealthy_live_model_stops_without_restarting_or_launching_api(tmp_path
     assert state["phase"] == "failed" and state["message"] == "OCR probe failed"
 
 
+def test_zotero_service_bypasses_proxy_only_for_loopback_and_existing_exclusions():
+    env = {
+        "HTTP_PROXY": "http://proxy.example:8080",
+        "NO_PROXY": " corp.example,127.0.0.1 ",
+        "no_proxy": "internal.example",
+    }
+    zotero_service.bypass_loopback_proxy(env)
+    zotero_service.bypass_loopback_proxy(env)
+    assert env["NO_PROXY"] == env["no_proxy"] == "corp.example,127.0.0.1,internal.example,localhost,::1"
+    assert env["HTTP_PROXY"] == "http://proxy.example:8080"
+
+
+def test_adding_loopback_exclusions_preserves_windows_registry_proxy():
+    system = {"http": "http://127.0.0.1:7897", "https": "http://127.0.0.1:7897"}
+    env = {"NO_PROXY": "corp.example"}
+    zotero_service.bypass_loopback_proxy(env, system)
+    assert env["HTTP_PROXY"] == system["http"]
+    assert env["HTTPS_PROXY"] == system["https"]
+    assert env["NO_PROXY"] == "corp.example,localhost,127.0.0.1,::1"
+
+    explicit = {"https_proxy": "http://other.example:8080"}
+    zotero_service.bypass_loopback_proxy(explicit, system)
+    assert explicit["https_proxy"] == "http://other.example:8080"
+    assert "HTTPS_PROXY" not in explicit
+    assert "HTTP_PROXY" not in explicit
+
+
 def test_single_slow_probe_reuses_warm_model(monkeypatch):
     probes = []
     def probe():

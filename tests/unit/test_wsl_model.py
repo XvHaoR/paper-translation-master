@@ -21,10 +21,13 @@ def test_vram_pressure_fails_before_systemd_start(monkeypatch):
     commands = []
     monkeypatch.setattr(model, "acquire_model_lock", lambda: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(model.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout="12288, 986\n"))
-    monkeypatch.setattr(model, "command", lambda *a, **kw: commands.append(a))
+    def command(*args, **kwargs):
+        commands.append(args)
+        return SimpleNamespace(stdout="inactive\n")
+    monkeypatch.setattr(model, "command", command)
     with pytest.raises(RuntimeError, match="显存不足"):
         model.WSLModel().start(lambda: False)
-    assert not commands
+    assert [args[:2] for args in commands] == [("systemctl", "show")]
 
 
 def test_failed_start_never_restarts_and_close_verifies_stop(monkeypatch):
@@ -48,19 +51,31 @@ def test_failed_start_never_restarts_and_close_verifies_stop(monkeypatch):
         owner.start(lambda: False)
 
 
-def test_warm_model_keeps_weights_and_shutdown_failure_is_not_success(monkeypatch):
+def test_warm_external_model_is_borrowed_without_systemd_changes(monkeypatch):
+    released = []
+    monkeypatch.setattr(model, "acquire_model_lock", lambda: SimpleNamespace(close=lambda: released.append(True)))
+    monkeypatch.setattr(model, "check_gpu_memory", lambda: pytest.fail("warm model must not reserve twice"))
+    monkeypatch.setattr(model, "command", lambda *a, **kw: pytest.fail("borrowed model must stay running"))
+    owner = model.WSLModel()
+    owner.start(lambda: True)
+    owner.close()
+    assert released == [True]
+
+
+def test_owned_model_shutdown_failure_is_not_success(monkeypatch):
     commands = []
     monkeypatch.setattr(model, "acquire_model_lock", lambda: SimpleNamespace(close=lambda: None))
-    monkeypatch.setattr(model, "check_gpu_memory", lambda: pytest.fail("warm model must not reserve twice"))
+    monkeypatch.setattr(model, "check_gpu_memory", lambda: None)
     def command(*args, **kwargs):
         commands.append(args)
         if "stop" in args:
             raise subprocess.TimeoutExpired(args, 15)
-        return SimpleNamespace(stdout="active\n")
+        return SimpleNamespace(stdout="inactive\n")
     monkeypatch.setattr(model, "command", command)
     owner = model.WSLModel()
-    owner.start(lambda: True)
-    assert not any("start" in args or "restart" in args for args in commands)
+    readiness = iter([False, True])
+    owner.start(lambda: next(readiness))
+    assert ("systemctl", "start", model.UNIT) in commands
     with pytest.raises(subprocess.TimeoutExpired):
         owner.close()
     assert not owner.closed

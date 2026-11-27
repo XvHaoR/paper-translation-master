@@ -15,6 +15,10 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+if __name__ == "__main__" and not __package__:
+    # The registered OCR Python supplies dependencies, this release supplies app.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from app.config import get_settings
 from app.pipeline.orchestrator import ConvertOptions, Orchestrator, ConversionResult
 

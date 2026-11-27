@@ -6,67 +6,84 @@ on:
 permissions:
   contents: read
 jobs:
-  windows-release:
+  macos:
+    uses: ./.github/workflows/macos.yml
+  windows:
     runs-on: windows-latest
-    permissions:
-      contents: write
+    timeout-minutes: 35
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: '3.13'
           cache: pip
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '22'
-      - run: python -m pip install -e ".[dev,layout]"
+      - run: python -m pip install -e ".[dev,layout,semantic]"
       - run: npm ci --prefix tests/dom
       - run: python -m pytest tests/unit tests/integration -q
-      - name: Build portable packages
+      - name: Build and verify Windows package
         shell: pwsh
         run: |
-          if ($env:GITHUB_REF_TYPE -eq 'tag') {
-            python packaging/build_release.py --tag $env:GITHUB_REF_NAME
-          } else {
-            python packaging/build_release.py
-          }
+          python packaging/build_release.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Build Windows unified bundle
-        shell: pwsh
-        run: |
           $embed = Join-Path $env:RUNNER_TEMP 'python-3.13.17-embed-amd64.zip'
           Invoke-WebRequest 'https://www.python.org/ftp/python/3.13.17/python-3.13.17-embed-amd64.zip' -OutFile $embed
           if ((Get-FileHash -Algorithm SHA256 $embed).Hash.ToLower() -ne '9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38') { throw 'Python download checksum mismatch' }
           $meta = Get-Content -Raw release.json | ConvertFrom-Json
-          $bundleDir = "dist/release/$($meta.slug)-windows-x64-$($meta.version)"
-          python scripts/build_cloud_bundle.py --output $bundleDir --embed $embed
+          python scripts/build_cloud_bundle.py --output "dist/release/$($meta.slug)-windows-x64-$($meta.version)" --embed $embed
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $bundle = Get-Item "$bundleDir.zip"
-          $sum = (Get-FileHash -Algorithm SHA256 $bundle.FullName).Hash.ToLower()
-          Add-Content -Encoding ascii dist/release/SHA256SUMS "$sum  $($bundle.Name)"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: release
-          path: dist/release/*
+          name: windows-release
+          path: |
+            dist/release/*.zip
+            dist/release/*.xpi
+            dist/release/updates.json
+            dist/release/RELEASE_NOTES.md
           if-no-files-found: error
-      - name: Publish GitHub Release
-        if: github.ref_type == 'tag'
+          compression-level: 0
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: windows-release
+          path: release-assets
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: macos-arm64
+          path: release-assets
+      - name: Verify downloads and publish both platforms together
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: pwsh
         run: |
-          $release = Get-Content -Raw release.json | ConvertFrom-Json
-          if ($release.localOnly) {
-            Write-Host "Local-only build. GitHub publication skipped."
-            exit 0
-          }
-          $assets = Get-ChildItem dist/release -File | Where-Object Name -ne 'RELEASE_NOTES.md' | ForEach-Object FullName
-          $options = @('--verify-tag', '--title', "$($release.name) $($release.version)", '--notes-file', 'dist/release/RELEASE_NOTES.md')
-          if ($release.prerelease) { $options += '--prerelease' }
-          gh release view $env:GITHUB_REF_NAME *> $null
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host "Release already exists; preserving reviewed uploaded assets."
-            exit 0
-          }
-          gh release create $env:GITHUB_REF_NAME @options @assets
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          set -euo pipefail
+          version=$(jq -r .version release.json)
+          slug=$(jq -r .slug release.json)
+          test "$GITHUB_REF_NAME" = "v$version"
+          jq -e '.localOnly != true and .prerelease != true' release.json >/dev/null
+          cd release-assets
+          for platform in windows-x64 macos-arm64; do
+            bundle="$slug-$platform-$version.zip"
+            unzip -tq "$bundle"
+            unzip -p "$bundle" "*/$slug-$version.xpi" > "$RUNNER_TEMP/$platform.xpi"
+            python - "$slug-$version.xpi" "$RUNNER_TEMP/$platform.xpi" <<'PY'
+          import sys, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as base, zipfile.ZipFile(sys.argv[2]) as platform:
+              assert set(base.namelist()) == set(platform.namelist())
+              for name in base.namelist():
+                  assert base.read(name) == platform.read(name), name
+          PY
+          done
+          sha256sum *.zip *.xpi updates.json > SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" --verify-tag --latest --title "论文翻译大师 $version · Windows / macOS" \
+            --notes-file RELEASE_NOTES.md *.zip *.xpi updates.json SHA256SUMS

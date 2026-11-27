@@ -17,8 +17,9 @@
     <html:div class="row">
       <html:label>范围 <html:select id="scope"><html:option value="view">当前文献列表</html:option><html:option value="library">整个当前文献库</html:option></html:select></html:label>
       <html:input id="search" type="search" placeholder="搜索论文标题、作者、年份" aria-label="搜索论文"/>
-      <html:label>操作 <html:select id="action"><html:option value="ocr">识别</html:option><html:option value="translate">翻译</html:option></html:select></html:label>
-      <html:label id="schemeRow">识别方案 <html:select id="scheme"><html:option value="layout">直接解析 PDF</html:option><html:option value="local">本地 OCR</html:option><html:option value="cloud">云端 OCR</html:option></html:select></html:label>
+      <html:label>操作 <html:select id="action"><html:option value="ocr">识别</html:option><html:option value="translate">翻译</html:option><html:option value="translate-title">仅翻译标题</html:option></html:select></html:label>
+      <html:label id="translateTitleRow" hidden="true"><html:input id="translateTitle" type="checkbox"/> 同时翻译标题</html:label>
+      <html:label id="schemeRow">识别方案 <html:select id="scheme"></html:select></html:label>
     </html:div>
     <html:div class="row">
       <html:button id="selectFiltered">选中筛选结果</html:button><html:button id="selectPending">只选未完成</html:button><html:button id="clearSelection">清空勾选</html:button>
@@ -26,7 +27,7 @@
       <html:span class="spacer"/><html:span id="selection" aria-live="polite"/>
     </html:div>
     <html:div class="list">
-      <html:table><html:thead><html:tr><html:th class="check"><html:input id="selectPage" type="checkbox" aria-label="选择本页论文"/></html:th><html:th>论文标题</html:th><html:th class="author">作者 / 年份</html:th><html:th class="state">OCR 状态</html:th><html:th class="state">翻译状态</html:th></html:tr></html:thead><html:tbody id="papers"/></html:table>
+      <html:table><html:thead><html:tr><html:th class="check"><html:input id="selectPage" type="checkbox" aria-label="选择本页论文"/></html:th><html:th>论文标题</html:th><html:th class="author">作者 / 年份</html:th><html:th class="state">OCR 状态</html:th><html:th id="translationColumn" class="state">翻译状态</html:th></html:tr></html:thead><html:tbody id="papers"/></html:table>
       <html:div id="empty">正在加载论文列表…</html:div>
     </html:div>
     <html:div class="footer"><html:button id="previous">上一页</html:button><html:span id="pageInfo"/><html:button id="next">下一页</html:button><html:span class="spacer"/><html:span id="language"/></html:div>

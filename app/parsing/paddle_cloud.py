@@ -8,8 +8,6 @@ import re
 import time
 from urllib.parse import urlsplit
 
-import httpx
-
 from app.parsing.paddleocr_vl import OfficialPageResult
 
 JOBS = "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs"
@@ -34,6 +32,23 @@ def _data(response):
     return body["data"]
 
 
+def _read_with_retry(read):
+    """Only repeat reads of an existing job or its signed results."""
+    import httpx
+
+    for attempt in range(3):
+        try:
+            return read()
+        except (httpx.TransportError, httpx.HTTPStatusError) as exc:
+            response = getattr(exc, "response", None)
+            status = response.status_code if response is not None else None
+            if (status is not None and status not in (408, 429, 500, 502, 503, 504)) or attempt == 2:
+                raise ValueError(f"飞桨云端 OCR 读取失败（HTTP {status}）" if status is not None else
+                                 "飞桨云端 OCR 连接中断，重试后仍未恢复") from None
+            wait = response.headers.get("Retry-After", "") if response is not None else ""
+            time.sleep(min(30, int(wait)) if wait.isdigit() else 1 << attempt)
+
+
 def _resource(client, url, limit):
     parsed = urlsplit(url)
     host = parsed.hostname or ""
@@ -41,15 +56,17 @@ def _resource(client, url, limit):
             or not (host == "paddleocr.aistudio-app.com" or host.endswith(".bcebos.com"))):
         raise ValueError("飞桨云端 OCR 返回了不受支持的资源地址")
     # Signed result URLs carry their own access. Never forward the API token.
-    with client.stream("GET", url) as response:
-        if response.status_code != 200:
-            raise ValueError(f"飞桨 OCR 结果下载失败（HTTP {response.status_code}）")
-        data = bytearray()
-        for chunk in response.iter_bytes():
-            data.extend(chunk)
-            if len(data) > limit:
-                raise ValueError("飞桨 OCR 返回的资源过大")
-        return bytes(data)
+    def download():
+        with client.stream("GET", url) as response:
+            response.raise_for_status()
+            data = bytearray()
+            for chunk in response.iter_bytes():
+                data.extend(chunk)
+                if len(data) > limit:
+                    raise ValueError("飞桨 OCR 返回的资源过大")
+            return bytes(data)
+
+    return _read_with_retry(download)
 
 
 class PaddleCloudRecognizer:
@@ -57,6 +74,7 @@ class PaddleCloudRecognizer:
     supports_page_selection = True
 
     def recognize_document(self, pdf: Path, output: Path, *, progress=lambda _: None, pages=None):
+        import httpx
         token_file = os.getenv("PAPERBRIDGE_CLOUD_TOKEN_FILE")
         if token_file:
             path = Path(token_file)
@@ -88,8 +106,14 @@ class PaddleCloudRecognizer:
         if not isinstance(job, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,120}", job):
             raise ValueError("飞桨云端 OCR 返回了无效任务编号")
         deadline = time.monotonic() + 900
+        def poll():
+            response = client.get(f"{JOBS}/{job}", headers=headers)
+            if response.status_code not in (401, 403):
+                response.raise_for_status()
+            return _data(response)
+
         while time.monotonic() < deadline:
-            data = _data(client.get(f"{JOBS}/{job}", headers=headers))
+            data = _read_with_retry(poll)
             state = data.get("state")
             if state == "done":
                 break

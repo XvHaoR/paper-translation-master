@@ -61,23 +61,25 @@ class WSLModel:
         self.mutation = threading.Lock()
         self.closed = False
         self.configured = False
+        self.started_here = False
 
     def start(self, ready, timeout=240):
         with self.mutation:
             if self.cancelled.is_set():
                 raise StartupCancelled("Zotero 已取消启动")
             # An existing warm model is retained; no extra model or VRAM needed.
-            warm = ready()
-            if not warm:
-                check_gpu_memory()
-            command("python3", "-c", "from pathlib import Path; p=Path(" + repr(OVERRIDE) +
-                    "); p.parent.mkdir(parents=True,exist_ok=True); p.write_text('[Service]\\nRestart=no\\n')")
-            self.configured = True
-            command("systemctl", "daemon-reload")
-            if warm:
+            if ready():
                 return
-            command("systemctl", "reset-failed", UNIT, check=False)
-            command("systemctl", "start", UNIT, timeout=30)
+            state = command("systemctl", "show", UNIT, "--property=ActiveState", "--value").stdout.strip()
+            if state not in {"active", "activating", "reloading"}:
+                check_gpu_memory()
+                command("python3", "-c", "from pathlib import Path; p=Path(" + repr(OVERRIDE) +
+                        "); p.parent.mkdir(parents=True,exist_ok=True); p.write_text('[Service]\\nRestart=no\\n')")
+                self.configured = True
+                command("systemctl", "daemon-reload")
+                command("systemctl", "reset-failed", UNIT, check=False)
+                self.started_here = True
+                command("systemctl", "start", UNIT, timeout=30)
         deadline = time.monotonic() + timeout
         while not self.cancelled.is_set() and time.monotonic() < deadline:
             if ready():
@@ -95,23 +97,24 @@ class WSLModel:
         with self.mutation:
             if self.closed:
                 return
-            # Queue a cgroup-wide stop first. If the model cannot exit promptly,
-            # kill only this dedicated unit, then verify it really is inactive.
-            command("systemctl", "stop", "--no-block", UNIT)
-            deadline = time.monotonic() + 15
-            while time.monotonic() < deadline:
-                state = command("systemctl", "show", UNIT, "--property=ActiveState", "--value").stdout.strip()
-                if state in {"inactive", "failed"}:
-                    break
-                time.sleep(.25)
-            else:
-                command("systemctl", "kill", "--kill-whom=all", "--signal=SIGKILL", UNIT, check=False)
-                command("systemctl", "stop", UNIT, timeout=15)
-            state = command("systemctl", "show", UNIT, "--property=ActiveState", "--value").stdout.strip()
-            if state not in {"inactive", "failed"}:
-                raise RuntimeError("OCR 模型尚未完全停止，请重试停止服务")
+            if self.started_here:
+                self._stop_unit()
             if self.configured:
                 command("python3", "-c", "from pathlib import Path; Path(" + repr(OVERRIDE) + ").unlink(missing_ok=True)")
                 command("systemctl", "daemon-reload")
             self.closed = True
             self.lock.close()
+
+    def _stop_unit(self):
+        command("systemctl", "stop", "--no-block", UNIT)
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            state = command("systemctl", "show", UNIT, "--property=ActiveState", "--value").stdout.strip()
+            if state in {"inactive", "failed"}:
+                return
+            time.sleep(.25)
+        command("systemctl", "kill", "--kill-whom=all", "--signal=SIGKILL", UNIT, check=False)
+        command("systemctl", "stop", UNIT, timeout=15)
+        state = command("systemctl", "show", UNIT, "--property=ActiveState", "--value").stdout.strip()
+        if state not in {"inactive", "failed"}:
+            raise RuntimeError("OCR 模型尚未完全停止，请重试停止服务")

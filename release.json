@@ -1,18 +1,22 @@
 {
-  "name": "论文翻译大师 · 融合预览版",
+  "name": "论文翻译大师",
   "slug": "paper-translation-master",
   "runtimeDirectory": "PaperTranslationMasterUnified",
-  "version": "0.7.1",
+  "version": "0.8.2",
+  "localOnly": false,
+  "semanticSearch": true,
   "minimumExportSchema": 13,
+  "minimumCoreSchema": 14,
   "repository": "XvHaoR/paper-translation-master",
-  "prerelease": true,
+  "prerelease": false,
   "cpuInstaller": false,
   "changes": [
-    "检测已有 WSL FastDeploy 环境并复用 Python 和模型，通过融合版运行目录启动兼容服务。",
-    "自动将原 PDF、识别结果和译文归到同一个 Zotero 文献条目。",
-    "合并直接解析 PDF、本地 OCR 和云端 OCR，仅安装一个 Zotero 插件。",
-    "统一排版与阅读工具，支持双向联动滚动、高亮和 HTML／Markdown／Excel 导出。",
-    "译文绑定实际使用的识别快照；Temperature 可留空使用模型默认值。"
+    "默认使用本地 OCR 时，工具栏支持手动预热和关闭。单篇及批量任务完成后按设置的空闲时间释放模型。",
+    "新增 MinerU 官方云端和自部署识别，支持段落定位、图表、公式与可编辑的识别结果。",
+    "外文原文划词可创建 Zotero PDF 批注，译文批注保存在相应译文。",
+    "识别后自动建立语义索引，检索结果展示中英标题和命中段落。",
+    "可拖动识别块，保存后译文随排版同步，文字修改可逐段补译。",
+    "单篇快捷识别与翻译、独立的每篇阅读模式，改善翻译和 OCR 的故障恢复。"
   ],
   "unified": true,
   "cloudPreview": false

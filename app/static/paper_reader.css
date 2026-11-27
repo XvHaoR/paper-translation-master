@@ -8,6 +8,7 @@ body.pl-paper-reader {
 .pl-paper-reader * { box-sizing: border-box; }
 .pl-paper-reader > nav { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:8px 0 14px; margin-bottom:18px; border-bottom:1px solid var(--paper-line); color:var(--paper-muted); font:12px/1.5 system-ui,sans-serif; }
 .paper-view-badge { border:1px solid #b8c9ce; border-radius:4px; padding:2px 7px; color:var(--paper-accent); font-size:11px; letter-spacing:.04em; }
+body.pl-editing main[hidden], .pl-edit-stage[hidden] { display: none !important; }
 .paper-article { min-width:0; }
 .pl-paper-reader .pl-block { border-color:transparent; padding:3px 5px; margin:6px 0; scroll-margin-top:24px; border-radius:3px; }
 .pl-paper-reader .pl-block.selected { border-color:#8aabbc; background:#6d93ae0a; }

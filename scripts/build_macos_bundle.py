@@ -51,6 +51,8 @@ def build(output: Path, python_archive: Path) -> Path:
         raise RuntimeError("Bundled Python is not relocatable")
     project = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))["project"]
     dependencies = project["dependencies"] + project["optional-dependencies"]["layout"]
+    if release.get("semanticSearch"):
+        dependencies += project["optional-dependencies"]["semantic"]
     subprocess.run([str(python), "-I", "-m", "pip", "install", "--no-cache-dir", "--only-binary=:all:",
                     "--platform", "macosx_14_0_arm64", "--platform", "macosx_14_0_universal2",
                     "--target", purelib, *dependencies, "onnxruntime==1.28.0"], check=True)
@@ -65,6 +67,10 @@ def build(output: Path, python_archive: Path) -> Path:
     subprocess.run([str(python), "-s", "-X", "utf8", "-c",
                     "import pymupdf; from app.server import create_app; "
                     "assert hasattr(pymupdf.Document, 'to_json')"], cwd=runtime, check=True)
+    if release.get("semanticSearch"):
+        from bundle_semantics import install_model, verify_model
+        install_model(runtime)
+        verify_model(python, runtime)
     builder.BUILDER.build(portable=True, output=output / f"{release['slug']}-{release['version']}.xpi")
     shutil.copyfile(ROOT / "scripts/install_unified.py", output / "install.py")
     shutil.copyfile(ROOT / "docs/MACOS.md", output / "README.md")

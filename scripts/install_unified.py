@@ -30,7 +30,8 @@ def main() -> None:
         python = env / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         if not python.is_file():
             subprocess.run([sys.executable, "-m", "venv", str(env)], check=True)
-        subprocess.run([str(python), "-m", "pip", "install", ".[layout]"], cwd=root, check=True)
+        subprocess.run([str(python), "-m", "pip", "install", ".[layout,semantic]"], cwd=root, check=True)
+        subprocess.run([str(python), str(root / "scripts/bundle_semantics.py"), str(root)], check=True)
         subprocess.run([str(python), "zotero/build.py", "--portable"], cwd=root, check=True)
 
     subprocess.run([str(python), "-s", "-X", "utf8", "-c",

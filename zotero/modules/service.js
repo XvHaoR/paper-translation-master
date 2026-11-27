@@ -12,9 +12,11 @@
     async online(url = this.url()) {
       try {
         const response = await Zotero.HTTP.request("GET", PL.serviceURL(url) + "/api/zotero/status", { timeout: 1500, responseType: "json" });
-        return response.response?.protocol === 2 && response.response?.export_schema >= Math.max(7, PL.config?.minimumExportSchema || 7)
+        const minimum = !this.localOCR && PL.config?.unified ? PL.config.minimumCoreSchema : 0;
+        return response.response?.protocol === 2 && response.response?.export_schema >= Math.max(minimum || 0, 7, PL.config?.minimumExportSchema || 7)
           && !!response.response?.cloud_ocr === (this.backend() === "cloud")
           && (!response.response?.managed_owner || response.response.managed_owner === this.instance)
+          && (!PL.config?.unified || this.localOCR || ["mineru","mineru-local"].every(mode => response.response?.ocr_modes?.includes(mode)))
           && (this.ocrMode() !== "rapidocr" || response.response?.ocr_modes?.includes("rapidocr"))
           && (!PL.config?.unified || this.localOCR !== Boolean(response.response?.features?.includes("unified-recognition")))
           && ["force-ocr", "cancel-ocr", "edited-source"].every(feature => response.response?.features?.includes(feature));
@@ -23,24 +25,38 @@
     },
     update(phase, message) {
       this.state = { phase, message };
-      PL.UI?.refreshService();
+      PL.UI?.refreshService?.();
       if (this.localOCR) PL.UI?.refreshTasks();
     },
     async ensure() {
-      if (this.stopping) await this.stopping;
+      if (this.shuttingDown || !PL.alive) throw new Error("插件正在关闭");
+      if (this.stopping) { await this.stopping; return this.ensure(); }
       if (this.starting) return this.starting;
+      this.starting = this.ensureReady(this.generation).finally(() => {
+        this.starting = null;
+        PL.UI?.refreshService?.();
+      });
+      return this.starting;
+    },
+    generation: 0,
+    checkStart(generation) {
+      if (generation !== this.generation || this.shuttingDown || !PL.alive) throw new Error("启动已取消");
+    },
+    async ensureReady(generation) {
       // The leased child is already watched by process.wait(). A transient
       // HTTP timeout between papers must not tear down its warm OCR model.
       if (this.state.phase === "ready" && this.readyURL) {
         if (this.owned && this.process && this.instance) return;
         if (Date.now() - (this.lastReadyAt || 0) < 15000) return;
         for (let attempt = 0; attempt < 3; attempt++) {
-          if (await this.online()) { this.lastReadyAt = Date.now(); return; }
+          const online = await this.online();
+          this.checkStart(generation);
+          if (online) { this.lastReadyAt = Date.now(); return; }
           if (attempt < 2) await Zotero.Promise.delay(300 * (attempt + 1));
         }
       }
-      this.starting = this.start().finally(() => { this.starting = null; });
-      return this.starting;
+      this.checkStart(generation);
+      return this.start(generation);
     },
     async project() {
       const runtime = this.localOCR ? await PL.Runtime.localOCR() : (PL.Runtime ? await PL.Runtime.resolve() : null);
@@ -61,6 +77,13 @@
         ...(PL.config.pythonCandidates || [])].filter(Boolean);
       for (const path of candidates) if (await IOUtils.exists(path)) return path;
       return Subprocess.pathSearch(Zotero.isWin ? "python.exe" : "python3");
+    },
+    mineruConfigPath() { return PathUtils.join(PL.Store.directory, "mineru-settings.json"); },
+    openMineruTokenPage() { Zotero.launchURL("https://mineru.net/apiManage/token"); },
+    async writeMineruConfig(config) {
+      const path = this.mineruConfigPath();
+      await IOUtils.writeJSON(path, config, {tmpPath:path + ".tmp"});
+      if (!Zotero.isWin) await IOUtils.setPermissions(path, 0o600);
     },
     cloudTokenPath() { return PathUtils.join(PL.Store.directory, "cloud-ocr-token"); },
     ocrMode() {
@@ -88,12 +111,13 @@
         await this.heartbeatWrite;
       }
     },
-    async start() {
+    async start(generation = this.generation) {
       this.update("checking", "检查本地服务…");
       try {
         if (!this.runtime) { try { await this.project(); } catch (_) { /* A configured external API remains usable. */ } }
         const configured = this.configuredURL();
         if (await this.online(configured)) {
+          this.checkStart(generation);
           this.readyURL = configured; this.lastReadyAt = Date.now();
           this.update("ready", "服务已就绪"); return;
         }
@@ -104,7 +128,7 @@
         }
         const root = await this.project();
         const python = await this.python(root);
-        if (!PL.alive) throw new Error("启动已取消");
+        this.checkStart(generation);
         this.instance = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("");
         this.releasing = false;
         // Separate leases prevent a delayed write/removal from an old plugin
@@ -113,6 +137,7 @@
         this.leasePath = PathUtils.join(PL.Store.directory, `service-lease-${this.instance}.json`);
         this.statePath = PathUtils.join(PL.Store.directory, `service-state-${this.instance}.json`);
         await this.heartbeat();
+        this.checkStart(generation);
         clearInterval(this.heartbeatTimer);
         this.heartbeatTimer = setInterval(() => this.heartbeat().catch(error => Zotero.logError(error)), 10000);
         const { Subprocess } = ChromeUtils.importESModule("resource://gre/modules/Subprocess.sys.mjs");
@@ -122,6 +147,7 @@
           "--backend", this.backend(), "--parent-pid", String(Services.appinfo.processID)];
         if (Zotero.isMac) arguments_.unshift("-s");
         if (this.backend() === "cloud" || this.ocrMode() === "layout") arguments_.push("--cloud-token-file", this.cloudTokenPath());
+        if (PL.config?.unified && !this.localOCR) arguments_.push("--mineru-config", this.mineruConfigPath());
         if (this.ocrMode() !== "official") arguments_.push("--ocr-mode", this.ocrMode());
         if (this.runtime?.descriptor) arguments_.push("--runtime-config",this.runtime.descriptor);
         if (this.runtime?.workspace) arguments_.push("--workspace", this.runtime.workspace);
@@ -138,22 +164,27 @@
             this.releaseLease().catch(error => Zotero.logError(error));
             this.instance = null;
             this.process = null;
+            this.owned = false;
           }
         });
         const deadline = Date.now() + 15 * 60 * 1000;
         while (PL.alive && Date.now() < deadline) {
+          this.checkStart(generation);
           let status;
           try { status = await IOUtils.readJSON(this.statePath); } catch (_) {}
+          this.checkStart(generation);
           if (status?.instance === this.instance) {
-            this.update(status.phase, status.message);
+            if (status.phase !== "ready") this.update(status.phase, status.message);
             if (status.phase === "failed") throw new Error(status.message);
             const serviceURL = status.service_url ? PL.serviceURL(status.service_url) : configured;
             if (status.phase === "ready" && await this.online(serviceURL)) {
+              this.checkStart(generation);
               // Only remember the fallback after the new service has proved ready.
               if (!PL.config?.unified) PL.setPref("serviceURL", serviceURL);
               this.owned = !!status.owned;
               if (!this.owned) { await this.releaseLease(); this.instance = null; this.process = null; }
               this.readyURL = serviceURL; this.lastReadyAt = Date.now();
+              this.update("ready", status.message);
               return;
             }
           }
@@ -163,7 +194,7 @@
         throw new Error(PL.alive ? "OCR 服务启动超时，请重试" : "启动已取消");
       }
       catch (error) {
-        this.update("failed", error.message);
+        if (generation === this.generation) this.update("failed", error.message);
         await this.releaseLease();
         if (this.process) await this.process.wait();
         this.owned = false;
@@ -182,17 +213,27 @@
     },
     async stop(options = {}) {
       if (this.stopping) return this.stopping;
+      if (!options.force && (PL.Tasks.active || PL.Tasks.queue.length)) throw new Error("有文献正在处理，请等待队列完成后停止服务");
+      this.generation++;
       this.stopping = this.stopInternal(options).finally(() => { this.stopping = null; });
       return this.stopping;
     },
-    async stopInternal({ force = false } = {}) {
+    async stopInternal({ disconnect = false } = {}) {
+      const starting = this.starting;
+      this.update("stopping", "正在停止服务并释放模型…");
+      if (starting) {
+        await this.releaseLease();
+        await starting.catch(() => {});
+      }
       if (!this.instance) {
-        if (await this.online()) throw new Error("当前服务由其他启动器启动，插件不会停止它");
-        this.update("stopped", "服务未启动");
+        if (!disconnect && !starting && await this.online()) {
+          this.update("ready", "当前服务由其他启动器管理");
+          throw new Error("当前服务由其他启动器启动，插件不会停止它");
+        }
+        await this.releaseLease();
+        this.update("stopped", "服务已断开");
         return;
       }
-      if (!force && (PL.Tasks.active || PL.Tasks.queue.length)) throw new Error("有文献正在处理，请等待队列完成后停止服务");
-      this.update("stopping", "正在停止服务并释放模型…");
       await this.releaseLease();
       if (this.process) await this.process.wait();
       const finalState = await IOUtils.readJSON(this.statePath).catch(()=>null);
@@ -206,7 +247,10 @@
       this.update("stopped", "服务已停止");
     },
     async shutdown() {
+      this.shuttingDown = true;
+      this.generation++;
       await this.releaseLease();
+      if (this.starting) await this.starting.catch(() => {});
       if (this.process) await this.process.wait();
     },
   };

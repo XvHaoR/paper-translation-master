@@ -1,20 +1,8 @@
 name: macOS bundle
 on:
-  push:
-    branches: [main, codex/macos-0.7.1]
-    tags: ['macos-v*.*.*']
-    paths:
-      - 'app/**'
-      - 'docs/MACOS.md'
-      - 'packaging/build_release.py'
-      - 'scripts/**'
-      - 'tests/**'
-      - 'zotero/**'
-      - 'pyproject.toml'
-      - 'release.json'
-      - '.github/workflows/macos.yml'
-  pull_request:
+  workflow_call:
   workflow_dispatch:
+  pull_request:
 permissions:
   contents: read
 jobs:
@@ -56,7 +44,7 @@ jobs:
           if [[ -f "$log" ]]; then tail -n 80 "$log"; fi
       - name: Test recognition, translation, and Zotero runtime
         run: |
-          python -m pip install -e '.[dev,layout]'
+          python -m pip install -e '.[dev,layout,semantic]'
           npm ci --prefix tests/dom
           python -m pytest tests/unit tests/integration -q
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -65,34 +53,3 @@ jobs:
           path: ${{ env.MACOS_BUNDLE }}
           if-no-files-found: error
           compression-level: 0
-  publish:
-    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'macos-v')
-    needs: macos-arm64
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: macos-arm64
-          path: release-assets
-      - name: Publish macOS release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          version=$(jq -r .version release.json)
-          slug=$(jq -r .slug release.json)
-          test "$GITHUB_REF_NAME" = "macos-v$version"
-          bundle="$slug-macos-arm64-$version.zip"
-          (cd release-assets && sha256sum "$bundle" > SHA256SUMS)
-          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            echo "Release already exists."
-            exit 0
-          fi
-          gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease --latest=false \
-            --title "论文翻译大师 $version · macOS" --notes-file docs/MACOS.md \
-            "release-assets/$bundle" release-assets/SHA256SUMS

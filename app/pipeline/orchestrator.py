@@ -17,6 +17,7 @@ import os
 import re
 import shutil
 import threading
+from tempfile import TemporaryDirectory
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +35,7 @@ from app.models.ir import (
     SourceMethod,
     block_id,
 )
+from app.parsing import mineru_client
 from app.parsing.native_pdf import NativePdfExtractor
 from app.parsing.paddleocr_vl import (
     DocumentRecognizer,
@@ -137,6 +139,7 @@ class ConvertOptions:
     pages: str = ""  # 空 = 全部；支持 "1-5,8,10-12"
     keep_raw: bool = True
     force: bool = False  # 忽略缓存
+    mineru_connection: mineru_client.Connection | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -198,7 +201,7 @@ class Orchestrator:
         progress: ProgressFn | None = None,
     ) -> ConversionResult:
         opts = options or ConvertOptions()
-        if opts.ocr_mode not in {"official", "rapidocr", "auto", "native", "full", "hybrid", "layout", "cloud"}:
+        if opts.ocr_mode not in {"official", "rapidocr", "auto", "native", "full", "hybrid", "layout", "cloud", *mineru_client.MODES}:
             return ConversionResult(errors=["不支持的 OCR 模式"])
         t0 = time.time()
         pdf_path = Path(pdf_path)
@@ -220,6 +223,15 @@ class Orchestrator:
             return result
         mode = opts.ocr_mode
         result.document_id = f"{mode}-{pre.pdf_hash}" if mode in {"layout", "cloud"} else pre.pdf_hash
+        connection = None
+        if mode in mineru_client.MODES:
+            try:
+                connection = opts.mineru_connection or mineru_client.Connection.read(mode)
+            except ValueError as error:
+                result.errors.append(str(error))
+                return result
+            suffix = "-" + connection.cache_key if mode == mineru_client.SELF_HOSTED else ""
+            result.document_id = f"{mode}{suffix}-{pre.pdf_hash}"
         doc_dir = self.workspace / "documents" / result.document_id
         ir_path = doc_dir / "document.json"
         index_path = doc_dir / "index.html"
@@ -231,7 +243,7 @@ class Orchestrator:
         # 2. 缓存命中（须匹配解析器缓存版本，算法升级后旧缓存自动失效）
         if (
             not opts.force
-            and mode in ("official", "auto", "layout", "cloud")
+            and mode in ("official", "auto", "layout", "cloud", *mineru_client.MODES)
             and ir_path.is_file()
             and index_path.is_file()
         ):
@@ -242,7 +254,7 @@ class Orchestrator:
                 if (ir.document.parser.get("cache_version") != version
                         or settings.get("ocr_mode") != mode
                         or (mode == "layout" and ir.document.parser.get("auto_parser_version") != version)
-                        or (mode in {"layout", "cloud"} and settings.get("pages") != pages)):
+                        or (mode in {"layout", "cloud", *mineru_client.MODES} and settings.get("pages") != pages)):
                     logger.info("解析器缓存版本升级，旧文档重新解析")
                 else:
                     result.ok = True
@@ -270,8 +282,8 @@ class Orchestrator:
             shutil.copy2(pdf_path, original_pdf)
         self._prepare_static_assets(doc_dir)
 
-        if mode == "layout":
-            return self._convert_layout(pdf_path, pages, doc_dir, result, report, t0)
+        if mode == "layout" or mode in mineru_client.MODES:
+            return self._convert_structured(pdf_path, pages, doc_dir, result, report, t0, mode, connection, total_pages)
 
         if opts.ocr_mode == "rapidocr":
             return self._convert_rapid(pdf_path, pre, pages, opts, doc_dir, result, report, t0)
@@ -425,8 +437,30 @@ class Orchestrator:
 
     # ------------------------------------------------------------------
 
+    def _rapid_engine(self):
+        from app.pipeline.rapid_document import RapidDocumentConverter
+        with self._recognizer_lock:
+            if not hasattr(self, "_rapid_converter"):
+                self._rapid_converter = RapidDocumentConverter()
+            return self._rapid_converter
+
+    def prewarm_local_ocr(self, mode: str) -> None:
+        # Runs on the same worker and the same cached recognizer as real PDFs.
+        sample = Path(__file__).resolve().parents[1] / "static" / "ocr-warmup.pdf"
+        if mode == "rapidocr":
+            self._rapid_engine().recognizer.recognize(sample.read_bytes())
+            return
+        if mode != "official":
+            raise ValueError("不支持的本地 OCR 引擎")
+        recognizer = self._resolve_recognizer(ConvertOptions(ocr_mode=mode))
+        if recognizer is None:
+            raise RuntimeError("未找到本地 PaddleOCR 模型，请检查引擎配置")
+        with TemporaryDirectory(prefix="paperloom-warmup-") as output:
+            if not recognizer.recognize_document(sample, Path(output)):
+                raise RuntimeError("本地 OCR 预热测试页没有返回结果")
+
     def _convert_rapid(self, pdf_path, pre, pages, opts, doc_dir, result, report, started_at):
-        from app.pipeline.rapid_document import RapidDocumentConverter, CACHE_VERSION, LIMITATIONS
+        from app.pipeline.rapid_document import CACHE_VERSION, LIMITATIONS
         settings = {"ocr_mode": "rapidocr", "render_dpi": opts.render_dpi, "pages": pages}
         ir_path = doc_dir / "document.json"
         try:
@@ -441,10 +475,7 @@ class Orchestrator:
             if ir is None:
                 # This separate converter never initializes the VL backend or
                 # runs its repairs. A single CPU session serves all batch jobs.
-                with self._recognizer_lock:
-                    if not hasattr(self, "_rapid_converter"):
-                        self._rapid_converter = RapidDocumentConverter()
-                ir = self._rapid_converter.convert(pdf_path, doc_dir, pre, pages, opts, report)
+                ir = self._rapid_engine().convert(pdf_path, doc_dir, pre, pages, opts, report)
                 if not ir.blocks:
                     raise RuntimeError("未生成任何内容块")
                 report("rendering_html", 0, "生成 RapidOCR 阅读页")
@@ -463,9 +494,11 @@ class Orchestrator:
         if mode == "layout":
             from app.parsing.reading_flow import PARSER_VERSION
             return PARSER_VERSION
+        if mode in mineru_client.MODES:
+            return mineru_client.CACHE_VERSION
         return self._cache_version()
 
-    def _convert_layout(self, pdf_path, pages, doc_dir, result, report, started_at):
+    def _convert_structured(self, pdf_path, pages, doc_dir, result, report, started_at, mode, connection, total_pages):
         import pymupdf
 
         from app.parsing.auto_pdf import parse_document
@@ -473,12 +506,18 @@ class Orchestrator:
         from app.services.offline_reader import copy_runtime
         from app.services.translation_export import reader_page
 
-        if not hasattr(pymupdf.Document, "to_json"):
+        if mode == "layout" and not hasattr(pymupdf.Document, "to_json"):
             result.errors.append("直接解析需要融合版自带的 PyMuPDF 版面分析环境。请重新运行融合版安装脚本。")
             return result
+        label = "PDF 文字层" if mode == "layout" else "MinerU"
         try:
-            ir, warnings = parse_document(pdf_path, doc_dir, result.document_id, pages, report=report)
-            ir.document.parser["cache_version"] = self._mode_cache_version("layout")
+            if mode == "layout":
+                ir, warnings = parse_document(pdf_path, doc_dir, result.document_id, pages, report=report)
+            else:
+                from app.parsing import mineru_result
+                ir, warnings = mineru_result.parse_document(pdf_path, doc_dir, result.document_id, pages, mode,
+                                                            connection, page_count=total_pages, report=report)
+            ir.document.parser["cache_version"] = self._mode_cache_version(mode)
             if not ir.blocks:
                 result.errors.append("PDF 没有可显示的内容")
                 return result
@@ -488,15 +527,15 @@ class Orchestrator:
             _atomic_write_text(doc_dir / "export.md", markdown)
             _atomic_write_text(doc_dir / "document.json", ir.model_dump_json(indent=2))
         except Exception as error:
-            logger.exception("PDF 文字层解析失败")
-            result.errors.append(f"PDF 文字层解析失败：{error}")
+            logger.exception("%s 解析失败", label)
+            result.errors.append(f"{label}解析失败：{error}")
             return result
         result.ir, result.doc_dir = ir, doc_dir
         result.ok = True
         result.warnings.extend(warnings)
         result.status = "needs_review" if any(block.quality.needs_review for block in ir.blocks) else "ready"
         result.duration_ms = int((time.time() - started_at) * 1000)
-        report("done", message="PDF 文字层解析完成")
+        report("done", message=f"{label}解析完成")
         return result
 
     def _convert_official(

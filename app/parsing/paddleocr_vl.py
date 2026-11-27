@@ -567,6 +567,44 @@ class PaddleOcrVlParser:
             raise RuntimeError(self._load_error) from e
         logger.info("PaddleOCR-VL 流水线加载完成，耗时 %.1fs", time.time() - t0)
 
+    def _document_pages(self, pdf_path, predict_kwargs):
+        """Stream completed pages once; a temporary upstream failure retries only the unread tail."""
+        import pymupdf
+        predict = getattr(self._ocr, "predict_iter", None) or self._ocr.predict
+        path = Path(pdf_path)
+        count = None
+        if path.is_file():
+            with pymupdf.open(path) as original:
+                count = len(original)
+        completed = 0
+        with tempfile.TemporaryDirectory(prefix="paperloom-ocr-") as temporary:
+            for attempt in range(3):
+                source = path
+                start = completed
+                if start and count is not None:
+                    source = Path(temporary) / f"remaining-{attempt}.pdf"
+                    with pymupdf.open(path) as original, pymupdf.open() as tail:
+                        tail.insert_pdf(original, from_page=start)
+                        tail.save(source)
+                try:
+                    for item in predict(str(source), **predict_kwargs):
+                        if count is not None and completed >= count:
+                            raise RuntimeError("OCR 返回页数超过原 PDF")
+                        yield completed + 1, item, start
+                        completed += 1
+                    if count is not None and completed != count:
+                        raise RuntimeError("OCR 提前结束，缺少后续页")
+                    return
+                except Exception as exc:
+                    transient = isinstance(exc, (TimeoutError, ConnectionError)) or re.search(
+                        r"\b(?:429|502|503|504)\b|timeout|timed out|connection reset|提前结束", str(exc), re.I)
+                    if not transient or attempt == 2 or (completed and count is None):
+                        raise
+                    if count is not None and completed == count:
+                        return
+                    logger.warning("官方 OCR 暂时中断，第 %s 页开始重试", completed + 1)
+                    time.sleep(1 << attempt)
+
     def recognize_document(
         self, pdf_path: str | Path, output_dir: str | Path,
         *, progress: Callable[[int], None] | None = None,
@@ -589,9 +627,7 @@ class PaddleOcrVlParser:
             # PaddleOCR 3.7's predict() eagerly collects the whole document.
             # Its iterator is necessary for early page progress and fail-fast
             # output validation; both methods use the same official pipeline.
-            predict = getattr(self._ocr, "predict_iter", None) or self._ocr.predict
-            output = predict(str(pdf_path), **predict_kwargs)
-            for page_no, item in enumerate(output, start=1):
+            for page_no, item, offset in self._document_pages(pdf_path, predict_kwargs):
                 page_dir = base / f"page-{page_no:03d}"
                 page_dir.mkdir(parents=True, exist_ok=True)
                 item.save_to_json(save_path=str(page_dir))
@@ -602,6 +638,13 @@ class PaddleOcrVlParser:
                 if json_file is None or markdown_file is None:
                     raise RuntimeError("PaddleOCR 官方导出缺少 JSON 或 Markdown 文件")
                 raw = json.loads(json_file.read_text(encoding="utf-8"))
+                if offset:
+                    payload = raw.get("res", raw)
+                    if "page_index" in payload:
+                        payload["page_index"] = page_no - 1
+                    if "input_path" in payload:
+                        payload["input_path"] = str(pdf_path)
+                    json_file.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
                 markdown = markdown_file.read_text(encoding="utf-8")
                 self.validate_output(raw)
                 pages.append(

@@ -51,7 +51,7 @@ def verify(descriptor: Path) -> None:
 
                 url = status["service_url"]
                 assert status["owned"]
-                assert request(url, "/api/zotero/status")["ocr_modes"] == ["layout", "cloud"]
+                assert request(url, "/api/zotero/status")["ocr_modes"] == ["layout", "cloud", "mineru", "mineru-local"]
                 boundary = uuid.uuid4().hex
                 payload = (
                     f'--{boundary}\r\nContent-Disposition: form-data; name="upload"; filename="paper.pdf"\r\n'
