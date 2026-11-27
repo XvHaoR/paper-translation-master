@@ -64,7 +64,7 @@
       if (this.states.has(reader)) return this.states.get(reader);
       const style = doc.createElement("style");
       style.dataset.paperloom = "reader-style";
-      style.textContent = PL.ReaderLayout.css;
+      style.textContent = PL.chromeStyle;
       doc.head.append(style);
       const state = { reader, doc, style, mode: "original", swapped: false, ratio: Number(PL.pref("splitRatio", "0.5")) || .5, kind: "ocr" };
       state.unload = () => this.remove(reader);
@@ -82,6 +82,8 @@
       const controls = doc.createElement("div");
       state.controls = controls;
       controls.className = "paperloom-reader-controls";
+      controls.setAttribute("role","group");
+      controls.setAttribute("aria-label","阅读模式");
       // Moving focus into the custom toolbar causes a React redraw before
       // pointerup. Keep mouse focus in the reader; keyboard activation still
       // uses the buttons' normal click event.
@@ -89,6 +91,7 @@
       controls.addEventListener("mousedown", event => event.preventDefault());
       for (const [mode, label] of [["original", "原文"], ["split", "对照"], ["ocr", "解析"]]) {
         const button = doc.createElement("button");
+        button.type = "button";
         button.className = "paperloom-mode-button";
         button.dataset.mode = mode;
         button.textContent = label;
@@ -104,27 +107,30 @@
       const swap = doc.createElement("button");
       swap.textContent = "⇄";
       swap.className = "paperloom-swap-button";
-      swap.title = "交换原文与 解析 窗口位置";
+      swap.type = "button";
+      swap.title = "交换 PDF 与阅读面板的位置";
       swap.setAttribute("aria-label", "交换左右窗口");
       swap.disabled = state.mode !== "split";
       swap.addEventListener("click", () => this.swap(reader));
       controls.append(swap);
       append(controls);
     },
-    modeLabel(mode) { return ({ original: "原文 PDF", split: "原文 / 解析 对照", ocr: "仅 解析版本" })[mode]; },
+    modeLabel(mode) { return ({ original: "显示原始 PDF", split: "并排显示 PDF 和译文，尚无译文时显示解析原文", ocr: "显示解析后的原文" })[mode]; },
     createPane(state) { PL.ReaderPanel.create(state); },
-    async setMode(reader, mode) {
-      await this.ready(reader);
-      const state = this.state(reader);
+    async setMode(reader, mode, { kind, saved } = {}) {
       if (!["original", "split", "ocr"].includes(mode)) return;
-      state.mode = mode;
+      const state = this.state(reader);
       if (mode !== "original") this.createPane(state);
+      state.mode = mode;
       this.layout(state);
-      if (mode !== "original" && !state.saved) await this.load(reader, "ocr");
-      if (mode === "split") this.bindPDF(state);
-      else { this.clearHighlight(state); PL.ScrollSync.unbind(state); }
-      await this.applyOptions(state);
-      this.refresh();
+      if (mode !== "split") { this.clearHighlight(state); PL.ScrollSync.unbind(state); }
+      if (mode === "original") {
+        state.loadRequest = Symbol("original");
+        return this.applyOptions(state);
+      }
+      return this.load(reader, kind || (mode === "split" ? "translate" : "ocr"), {
+        saved, fallbackOCR: mode === "split" && !kind, waitForPDF: true,
+      });
     },
     swap(reader) {
       const state = this.state(reader);
@@ -133,27 +139,53 @@
     },
     layout(state) { PL.ReaderLayout.apply(state); },
     position(state) { PL.ReaderLayout.position(state); },
-    async load(reader, kind) {
+    async load(reader, kind, { saved, fallbackOCR = false, waitForPDF = false } = {}) {
       const state = this.state(reader);
-      const request = state.loadRequest = Symbol("load");
-      this.createPane(state);
-      const source = Zotero.Items.get(reader.itemID);
-      const saved = await PL.Store.saved(source, kind);
-      if (state.loadRequest !== request) return;
-      if (saved) return this.showSaved(reader, saved, kind);
-      state.kind = kind;
-      state.saved = null;
-      state.frame?.remove();
-      state.frame = null;
-      state.message.hidden = false;
-      state.message.textContent = kind === "ocr"
-        ? "这篇文献还没有解析结果。\n点击上方「解析 / 重试」开始，完成后会自动保存。\n也可在文献列表中批量选择后执行解析。"
-        : "尚无译文。\n点击「翻译」会使用已保存的 解析结果，并保存完整译文。";
-      this.refresh();
+      const request = state.loadRequest = state.pendingLoad = Symbol("load");
+      try {
+        this.createPane(state);
+        if (!state.frame) {
+          state.message.hidden = false;
+          state.message.textContent = "正在打开已保存的内容…";
+        }
+        if (waitForPDF) await this.ready(reader);
+        if (state.loadRequest !== request) return;
+        const source = Zotero.Items.get(reader.itemID);
+        saved ||= await PL.Store.saved(source, kind);
+        if (state.loadRequest !== request) return;
+        const usingOCRFallback = !saved && fallbackOCR;
+        if (usingOCRFallback) {
+          kind = "ocr";
+          saved = await PL.Store.saved(source, kind);
+          if (state.loadRequest !== request) return;
+        }
+        if (saved) return await this.showSaved(reader, saved, kind, request, usingOCRFallback);
+        this.unbindFrame(state);
+        this.clearHighlight(state);
+        state.frame?.remove();
+        state.frame = state.uri = state.saved = state.savedLanguage = state.exportSchema = null;
+        state.usingOCRFallback = false;
+        state.lastLocated = null;
+        state.kind = kind;
+        state.message.hidden = false;
+        state.message.textContent = kind === "ocr"
+          ? "这篇文献还没有可打开的解析原文。点击「识别 / 重试」即可生成。"
+          : "这篇文献还没有可打开的译文。点击「翻译」即可使用已保存的解析原文生成译文。";
+        this.refresh();
+      }
+      catch (error) {
+        if (state.loadRequest !== request) return;
+        if (!state.frame && state.message) {
+          state.message.hidden = false;
+          state.message.textContent = String(error.message || error);
+        }
+        throw error;
+      }
+      finally { if (state.pendingLoad === request) state.pendingLoad = null; }
     },
-    async showSaved(reader, saved, kind) {
+    async showSaved(reader, saved, kind, request = Symbol("show"), usingOCRFallback = false) {
       const state = this.state(reader);
-      const request = state.loadRequest = Symbol("show");
+      state.loadRequest = request;
       this.createPane(state);
       const path = await saved.attachment.getFilePathAsync();
       if (state.loadRequest !== request) return;
@@ -171,6 +203,7 @@
       // The visible page keeps its own actions while its replacement loads.
       state.saved = saved;
       state.kind = kind;
+      state.usingOCRFallback = usingOCRFallback;
       state.savedLanguage = kind === "translate" ? PL.language() : null;
       if (replaceFrame) {
         this.unbindFrame(state);
@@ -199,11 +232,12 @@
       // Keep about:blank out of actor requests, independently of styling.
       const frame = state.frame;
       const deadline = Date.now() + 5000;
-      while (state.frame === frame && frame?.browsingContext?.currentWindowGlobal?.documentURI?.spec !== uri && Date.now() < deadline) {
+      while (state.loadRequest === request && state.frame === frame && frame?.browsingContext?.currentWindowGlobal?.documentURI?.spec !== uri && Date.now() < deadline) {
         await Zotero.Promise.delay(25);
       }
       if (state.loadRequest !== request) return;
       await this.initializeFrame(state);
+      if (state.loadRequest !== request) return;
       this.bindPDF(state);
       this.refresh();
     },
@@ -263,10 +297,12 @@
     locate(state, data, navigate = true) { return PL.Comparison.locate(state, data, navigate); },
     async process(reader, kind, mode) {
       const source = Zotero.Items.get(reader.itemID);
+      const state = this.state(reader);
+      const selection = state.loadRequest;
       const force = kind === "force-ocr";
       if (force) kind = "ocr";
       const saved = await PL.Tasks.enqueue(source, kind, reader._window, { force, mode });
-      if (!PL.alive || !this.states.has(reader)) return;
+      if (!PL.alive || this.states.get(reader) !== state || state.loadRequest !== selection) return;
       await this.showSaved(reader, saved, kind);
     },
     releaseOCR(source) {
@@ -292,6 +328,7 @@
     remove(reader) {
       const state = this.states.get(reader);
       if (!state) return;
+      state.loadRequest = Symbol("closed");
       this.unbindFrame(state); this.clearHighlight(state);
       PL.Comparison.unbind(state);
       state.doc.defaultView.removeEventListener("unload", state.unload);
@@ -301,8 +338,10 @@
       state.placeholder?.remove();
       state.chromeStyle?.remove();
       state.resizeObserver?.disconnect();
-      state.toolbarObserver?.disconnect();
-      if (state.toolbarDismiss) state.pane.ownerDocument.removeEventListener("pointerdown",state.toolbarDismiss,true);
+      if (state.toolbarDismiss) {
+        state.pane.ownerDocument.removeEventListener("pointerdown",state.toolbarDismiss,true);
+        state.doc.removeEventListener("pointerdown",state.toolbarDismiss,true);
+      }
       if (state.positionListener) reader._window.removeEventListener("resize", state.positionListener);
       if (state.container) state.container.style.position = state.oldPosition;
       state.style.remove();

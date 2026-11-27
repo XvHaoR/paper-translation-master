@@ -2,9 +2,9 @@
 
 在 Zotero 中识别 PDF、对照原文阅读、编辑识别结果，并按需使用大模型翻译。识别结果和译文保存为 Zotero 附件，可离线打开。
 
-**0.7.1 融合预览版**将直接解析 PDF、本地 OCR 和云端 OCR 合到一个插件。可在设置中选择默认方案，或在单篇阅读器和批量窗口临时切换。
+**0.7.1.3** 更新了原文、对照和解析视图。批量翻译时可以选择「最近添加优先」，再按「待处理」或「失败可重试」筛选文献。设置分为「翻译服务」「文献处理」「阅读外观」。[更新记录](CHANGELOG.md)
 
-[下载 Windows x64 完整包](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.7.1/paper-translation-master-windows-x64-0.7.1.zip) · [查看 Release 和校验值](https://github.com/XvHaoR/paper-translation-master/releases/tag/v0.7.1) · [完整安装说明](docs/UNIFIED_EDITION.md)
+[下载已发布的安装包和校验值](https://github.com/XvHaoR/paper-translation-master/releases) · [完整安装说明](docs/UNIFIED_EDITION.md)
 
 ## 安装和升级
 

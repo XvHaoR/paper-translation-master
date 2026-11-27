@@ -1,63 +1,69 @@
 <?xml version="1.0"?>
 <?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
+<?xml-stylesheet href="chrome://paperloom/content/workbench.css" type="text/css"?>
 <window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
-        xmlns:html="http://www.w3.org/1999/xhtml" title="论文翻译大师设置" width="660" height="720">
+        xmlns:h="http://www.w3.org/1999/xhtml" title="论文翻译大师设置" width="740" height="660">
   <script src="chrome://paperloom/content/settings.js"/>
-  <html:style>
-    :root{color-scheme:light dark} body, .settings{font:14px/1.6 system-ui;color:inherit}
-    .settings{padding:22px;overflow:auto;max-height:calc(100vh - 44px)}h2{font-size:16px;margin:18px 0 10px}
-    .field{display:grid;grid-template-columns:125px 1fr;gap:10px;align-items:center;margin:9px 0}
-    input:not([type=checkbox]),select{box-sizing:border-box;width:100%;font:inherit;padding:6px;border:1px solid #8885;border-radius:4px;background:transparent;color:inherit}
-    button{font:inherit;padding:6px 12px;border:1px solid #8885;border-radius:4px;cursor:pointer;background:transparent;color:inherit}
-    .hint{font-size:12px;opacity:.75;margin:6px 0}.row{display:flex;gap:8px;align-items:center}.row input{flex:1}
-    #status{white-space:pre-wrap;min-height:24px;font-size:13px;margin:12px 0}.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
-    hr{border:0;border-top:1px solid #8884;margin:18px 0}
-  </html:style>
-  <html:div class="settings">
-    <html:h2>处理方式</html:h2>
-    <html:label class="field" id="recognitionRow">默认识别方案<html:select id="recognitionMode"><html:option value="layout">直接解析 PDF</html:option><html:option value="local">本地 OCR</html:option><html:option value="cloud">云端 OCR</html:option></html:select></html:label>
-    <html:label><html:input id="autoOCR" type="checkbox"/> <html:span id="autoOCRLabel">新文献添加后自动 OCR</html:span></html:label>
-    <html:p class="hint">仅处理之后添加且已下载的 PDF。翻译始终由你手动选择。</html:p>
-    <html:label class="field">目标语言<html:input id="language" value="zh" placeholder="zh / en / zh-TW"/></html:label>
-    <html:hr/>
-    <html:h2>阅读字体与颜色</html:h2>
-    <html:p class="hint">OCR 原文和译文分别设置。留空使用系统字体；自动颜色跟随明暗主题。保存后立即应用于已打开的阅读窗口，无需启动 OCR。</html:p>
-    <html:datalist id="readerFonts">
-      <html:option value="Microsoft YaHei"/><html:option value="SimSun"/><html:option value="SimHei"/>
-      <html:option value="Times New Roman"/><html:option value="Georgia"/><html:option value="Arial"/>
-      <html:option value="Segoe UI"/><html:option value="Noto Serif CJK SC"/>
-    </html:datalist>
-    <html:label class="field">OCR 字体<html:input id="ocrFontFamily" list="readerFonts" placeholder="系统默认，或输入已安装的字体名"/></html:label>
-    <html:div class="field"><html:span>OCR 文字颜色</html:span><html:div class="row"><html:input id="ocrTextColor" type="color"/><html:label><html:input id="ocrColorAuto" type="checkbox"/> 自动</html:label></html:div></html:div>
-    <html:label class="field">译文字体<html:input id="translationFontFamily" list="readerFonts" placeholder="系统默认，或输入已安装的字体名"/></html:label>
-    <html:div class="field"><html:span>译文文字颜色</html:span><html:div class="row"><html:input id="translationTextColor" type="color"/><html:label><html:input id="translationColorAuto" type="checkbox"/> 自动</html:label></html:div></html:div>
-    <html:div class="row"><html:button id="saveAppearance">保存阅读外观</html:button><html:button id="resetAppearance">恢复默认外观</html:button></html:div>
-    <html:hr/>
-    <html:h2>本地 OCR 引擎</html:h2>
-    <html:p class="hint" id="localEngineHint">首次使用：下载安装器并运行。安装成功后自动识别运行环境，无需手填 Python 和项目路径。Windows 一键版需要 NVIDIA 显卡，其他平台请参考源码安装说明。</html:p>
-    <html:div class="row"><html:button id="downloadEngine">下载 OCR 安装器</html:button><html:button id="detectEngine">检测已安装引擎</html:button></html:div>
-    <html:p id="engineStatus" class="hint" role="status" aria-live="polite"/>
-    <html:p class="hint">在 Zotero 工具栏点击启动，或处理文献时按需启动。关闭 Zotero 后自动释放由插件启动的服务。</html:p>
-    <html:label class="field" id="localEngineRow">本地引擎<html:select id="localEngine"><html:option value="auto">自动检测（GPU 优先）</html:option><html:option value="gpu">PaddleOCR-VL（GPU）</html:option><html:option value="cpu">RapidOCR（CPU）</html:option><html:option value="custom">自定义环境</html:option></html:select></html:label>
-    <html:label class="field" id="localBackendRow">运行方式<html:select id="backend"><html:option value="wsl">WSL FastDeploy（本机已配置）</html:option><html:option value="local">本机 Python OCR</html:option><html:option value="cloud">飞桨云端 OCR</html:option></html:select></html:label>
-    <html:label class="field" id="localRootRow">项目目录<html:div class="row"><html:input id="projectRoot"/><html:button id="chooseRoot">选择…</html:button></html:div></html:label>
-    <html:label class="field" id="localPythonRow">Python 路径<html:input id="pythonPath" placeholder="选择自定义环境时填写"/></html:label>
-    <html:label class="field">本地服务地址<html:input id="serviceURL" placeholder="http://127.0.0.1:8765"/></html:label>
-    <html:hr/>
-    <html:h2>飞桨云端 OCR</html:h2>
-    <html:p class="hint">云端模式会将待识别的 PDF 上传至飞桨 AI Studio，无需安装模型。密钥只保存在本机 Zotero 配置目录。</html:p>
-    <html:label class="field">Access Token<html:input id="cloudToken" type="password" placeholder="留空保留现有密钥"/></html:label>
-    <html:label><html:input id="clearCloudToken" type="checkbox"/> 清除云端 OCR 密钥</html:label>
-    <html:hr/>
-    <html:h2>翻译服务</html:h2>
-    <html:p class="hint">兼容 OpenAI 接口，可使用本地模型或云端服务。OCR 不需要翻译密钥。</html:p>
-    <html:label class="field">接口地址<html:input id="llm_base_url" placeholder="https://api.deepseek.com/v1"/></html:label>
-    <html:label class="field">模型<html:input id="llm_model" placeholder="填写服务商提供的模型名"/></html:label>
-    <html:label class="field">Temperature<html:input id="llm_temperature" inputmode="decimal" placeholder="留空使用模型默认值"/></html:label>
-    <html:label class="field">API 密钥<html:input id="llm_api_key" type="password" placeholder="留空保留现有密钥"/></html:label>
-    <html:label><html:input id="clearKey" type="checkbox"/> 清除已保存的密钥（使用无密钥本地服务时）</html:label>
-    <html:div class="row"><html:button id="loadModel">启动并读取翻译配置</html:button><html:button id="saveModel">保存翻译配置</html:button><html:button id="testModel">测试连接</html:button></html:div>
-    <html:div id="status" role="status" aria-live="polite"/>
-    <html:div class="actions"><html:button id="saveLocal">保存设置</html:button><html:button id="close">关闭</html:button></html:div>
-  </html:div>
+  <h:main class="workbench">
+    <h:header class="dialog-head"><h:h1>论文翻译大师设置</h:h1><h:span id="version" class="version"/></h:header>
+    <h:div class="dialog-tabs" role="tablist" aria-label="设置类别">
+      <h:button id="tab-model" role="tab" aria-controls="panel-model" aria-selected="true">翻译服务</h:button>
+      <h:button id="tab-process" role="tab" aria-controls="panel-process" aria-selected="false" tabindex="-1">文献处理</h:button>
+      <h:button id="tab-reading" role="tab" aria-controls="panel-reading" aria-selected="false" tabindex="-1">阅读外观</h:button>
+    </h:div>
+    <h:div class="dialog-body">
+      <h:section id="panel-model" role="tabpanel" aria-labelledby="tab-model" class="settings-panel">
+        <h:div class="form-section">
+          <h:h2>模型连接</h:h2>
+          <h:label class="field">接口地址<h:input id="llm_base_url" placeholder="https://api.openai.com/v1" spellcheck="false"/></h:label>
+          <h:label class="field">模型名称<h:input id="llm_model" placeholder="输入服务商提供的模型 ID" spellcheck="false"/></h:label>
+          <h:label class="field">API 密钥<h:input id="llm_api_key" type="password" autocomplete="off" placeholder="留空保留已保存的密钥"/></h:label>
+          <h:div class="row"><h:button id="testModel">测试连接</h:button><h:button id="loadModel">重新读取配置</h:button></h:div>
+        </h:div>
+        <h:details class="form-section"><h:summary>高级选项</h:summary><h:div class="details-body">
+          <h:label class="field">采样温度<h:input id="llm_temperature" inputmode="decimal" placeholder="留空使用模型默认值"/></h:label>
+          <h:label class="checkline"><h:input id="clearKey" type="checkbox"/>保存时清除翻译密钥</h:label>
+        </h:div></h:details>
+      </h:section>
+      <h:section id="panel-process" role="tabpanel" aria-labelledby="tab-process" class="settings-panel" hidden="hidden">
+        <h:div class="form-section"><h:h2>识别与翻译</h:h2>
+          <h:label class="field" id="recognitionRow">默认识别方案<h:select id="recognitionMode"><h:option value="layout">直接解析 PDF</h:option><h:option value="local">本地 OCR</h:option><h:option value="cloud">云端 OCR</h:option></h:select></h:label>
+          <h:label class="field">译文目标语言<h:input id="language" value="zh" list="lang-options" placeholder="zh / en / zh-TW"/></h:label>
+          <h:datalist id="lang-options"><h:option value="zh" label="中文"/><h:option value="zh-TW" label="繁体中文"/><h:option value="en" label="英语"/></h:datalist>
+          <h:label class="checkline"><h:input id="autoOCR" type="checkbox"/><h:span id="autoOCRLabel">新文献添加后自动识别</h:span></h:label>
+          <h:p class="hint">自动识别适用于之后添加且已下载的 PDF。翻译由你手动启动。</h:p>
+        </h:div>
+        <h:details id="localOptions" class="form-section"><h:summary>本地 OCR 引擎</h:summary><h:div class="details-body">
+          <h:p id="localEngineHint" class="hint">可检测已安装的运行环境，也可指定本机引擎路径。</h:p>
+          <h:label class="field" id="localEngineRow">本地引擎<h:select id="localEngine"><h:option value="auto">自动检测（GPU 优先）</h:option><h:option value="gpu">PaddleOCR-VL（GPU）</h:option><h:option value="cpu">RapidOCR（CPU）</h:option><h:option value="custom">自定义环境</h:option></h:select></h:label>
+          <h:label class="field" id="localBackendRow">运行方式<h:select id="backend"><h:option value="wsl">WSL FastDeploy</h:option><h:option value="local">本机 Python OCR</h:option><h:option value="cloud">飞桨云端 OCR</h:option></h:select></h:label>
+          <h:div class="field" id="localRootRow"><h:label for="projectRoot">项目目录</h:label><h:div class="row"><h:input id="projectRoot"/><h:button id="chooseRoot">浏览…</h:button></h:div></h:div>
+          <h:label class="field" id="localPythonRow">Python 路径<h:input id="pythonPath"/></h:label>
+          <h:label class="field">本地服务地址<h:input id="serviceURL" placeholder="http://127.0.0.1:8765"/></h:label>
+          <h:div class="row"><h:button id="detectEngine">检测已安装引擎</h:button><h:button id="downloadEngine">下载安装器</h:button></h:div>
+          <h:p id="engineStatus" class="hint" role="status"/>
+        </h:div></h:details>
+        <h:details id="cloudOptions" class="form-section"><h:summary>飞桨云端 OCR</h:summary><h:div class="details-body">
+          <h:p class="hint">云端识别会将选中的 PDF 上传至飞桨 AI Studio。</h:p>
+          <h:label class="field">Access Token<h:input id="cloudToken" type="password" autocomplete="off" placeholder="留空保留已保存的密钥"/></h:label>
+          <h:label class="checkline"><h:input id="clearCloudToken" type="checkbox"/>保存时清除云端 OCR 密钥</h:label>
+        </h:div></h:details>
+      </h:section>
+      <h:section id="panel-reading" role="tabpanel" aria-labelledby="tab-reading" class="settings-panel" hidden="hidden">
+        <h:datalist id="readerFonts"><h:option value="Microsoft YaHei"/><h:option value="SimSun"/><h:option value="SimHei"/><h:option value="Times New Roman"/><h:option value="Georgia"/><h:option value="Arial"/><h:option value="Segoe UI"/><h:option value="Noto Serif CJK SC"/></h:datalist>
+        <h:div class="form-section"><h:h2>解析原文</h:h2>
+          <h:label class="field">字体<h:input id="ocrFontFamily" list="readerFonts" placeholder="系统默认，或输入已安装的字体"/></h:label>
+          <h:div class="field"><h:label for="ocrTextColor">文字颜色</h:label><h:div class="row"><h:input id="ocrTextColor" type="color"/><h:label class="checkline"><h:input id="ocrColorAuto" type="checkbox"/>跟随主题</h:label></h:div></h:div>
+        </h:div>
+        <h:div class="form-section"><h:h2>译文</h:h2>
+          <h:label class="field">字体<h:input id="translationFontFamily" list="readerFonts" placeholder="系统默认，或输入已安装的字体"/></h:label>
+          <h:div class="field"><h:label for="translationTextColor">文字颜色</h:label><h:div class="row"><h:input id="translationTextColor" type="color"/><h:label class="checkline"><h:input id="translationColorAuto" type="checkbox"/>跟随主题</h:label></h:div></h:div>
+        </h:div>
+        <h:button id="resetAppearance">恢复默认外观</h:button>
+      </h:section>
+    </h:div>
+    <h:footer class="dialog-footer settings-footer"><h:div id="status" class="feedback" role="status" aria-live="polite"/><h:span class="spacer"/><h:button id="close">关闭</h:button>
+      <h:button id="saveModel" class="primary">保存翻译配置</h:button><h:button id="saveLocal" class="primary" hidden="hidden">保存处理设置</h:button><h:button id="saveAppearance" class="primary" hidden="hidden">保存阅读外观</h:button>
+    </h:footer>
+  </h:main>
 </window>

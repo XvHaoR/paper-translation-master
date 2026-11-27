@@ -2,17 +2,16 @@
   "name": "论文翻译大师 · 融合预览版",
   "slug": "paper-translation-master",
   "runtimeDirectory": "PaperTranslationMasterUnified",
-  "version": "0.7.1",
+  "version": "0.7.1.3",
   "minimumExportSchema": 13,
   "repository": "XvHaoR/paper-translation-master",
   "prerelease": true,
   "cpuInstaller": false,
   "changes": [
-    "检测已有 WSL FastDeploy 环境并复用 Python 和模型，通过融合版运行目录启动兼容服务。",
-    "自动将原 PDF、识别结果和译文归到同一个 Zotero 文献条目。",
-    "合并直接解析 PDF、本地 OCR 和云端 OCR，仅安装一个 Zotero 插件。",
-    "统一排版与阅读工具，支持双向联动滚动、高亮和 HTML／Markdown／Excel 导出。",
-    "译文绑定实际使用的识别快照；Temperature 可留空使用模型默认值。"
+    "修复阅读器视图按钮点击失效，调整对照栏的字号、导出和更多操作。",
+    "批量窗口新增最近添加排序、搜索、状态筛选和当前批次进度。",
+    "设置分为翻译服务、文献处理、阅读外观。本地工作台支持文献搜索、失败重试和窄屏显示。",
+    "修复 Windows 清理临时文件时将已保存的结果标记为失败的问题。"
   ],
   "unified": true,
   "cloudPreview": false

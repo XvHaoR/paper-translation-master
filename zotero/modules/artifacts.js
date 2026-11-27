@@ -98,7 +98,21 @@
         check();
         return await this.save(source, kind, hash, artifact, directory, language);
       }
-      finally { await IOUtils.remove(temporary.path, { recursive: true, ignoreAbsent: true }); }
+      finally {
+        // Windows can hold bundle.zip open briefly after the attachment has been saved.
+        // Cleanup must also preserve the original download, extraction or import error.
+        let cleanupError;
+        for (const delay of [0, 300, 1000, 3000]) {
+          if (delay) await Zotero.Promise.delay(delay);
+          try {
+            await IOUtils.remove(temporary.path, { recursive: true, ignoreAbsent: true });
+            cleanupError = null;
+            break;
+          }
+          catch (error) { cleanupError = error; }
+        }
+        if (cleanupError) Zotero.logError(cleanupError);
+      }
     },
     async save(source, kind, hash, artifact, directory, language) {
       const mode = artifact.recognition_mode;

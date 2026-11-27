@@ -1,103 +1,199 @@
 "use strict";
 window.addEventListener("DOMContentLoaded", () => {
-  const args=window.arguments[0].wrappedJSObject,PL=args.controller,owner=args.owner;
-  const $=id=>document.getElementById(id),NS="http://www.w3.org/1999/xhtml";
-  let rows=[],rowsByID=new Map(),selection=new Set(),page=0,busy=false,loading=false,generation=0,initialized=false;
-  const size=100;
-  const element=(tag,text,parent)=>{const node=document.createElementNS(NS,tag);if(text!=null)node.textContent=text;parent?.append(node);return node;};
-  const action=()=>$("action").value==="translate"?"translate":$("force").checked?"force-ocr":"ocr";
-  const label=row=>({ocr:row.source?PL.Store.label(row.source,"ocr"):"—",translate:row.source?PL.Store.label(row.source,"translate"):"—"});
-  const filtered=()=>{
-    const query=$("search").value.trim().toLocaleLowerCase();
-    return rows.filter(row=>!query||[row.title,row.creator,row.year].join(" ").toLocaleLowerCase().includes(query));
+  const { controller: PL, owner, action: initialAction } = window.arguments[0].wrappedJSObject;
+  const $ = id => document.getElementById(id);
+  const pageSize = 100;
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  let rows = [], page = 0, generation = 0, initialized = false, loading = false, busy = false;
+  let visibleIDs = [], onScreen = [], currentBatch = null;
+  const selection = new Set();
+  const operation = () => $("action").value;
+  const taskKind = () => operation() === "translate" ? "translate" : $("force").checked ? "force-ocr" : "ocr";
+  const node = (name, parent, text) => {
+    const el = document.createElementNS("http://www.w3.org/1999/xhtml", name);
+    if (text != null) el.textContent = text;
+    parent.append(el);
+    return el;
   };
-  function counts(){
-    const visible=filtered().filter(row=>row.available),chosen=rows.filter(row=>row.available&&selection.has(row.id));
-    const shown=visible.filter(row=>selection.has(row.id)).length;
-    $("selection").textContent=`已选 ${chosen.length} 篇${chosen.length!==shown?`（筛选内 ${shown} 篇）`:""}`;
-    $("start").disabled=busy||loading||!chosen.length;
-    $("start").textContent=busy?"正在处理…":`${action()==="translate"?"开始翻译":action()==="force-ocr"?"开始重新 OCR":"开始 OCR"}${chosen.length?`（${chosen.length} 篇）`:""}`;
-    $("forceRow").hidden=$("action").value==="translate";
-    $("actionHint").textContent=$("action").value==="translate"?"已有译文直接复用；没有 OCR 的论文会先识别再翻译。":$("force").checked?"勾选的论文将重新 OCR，不复用已有识别缓存。":"已有 OCR 直接复用；只处理勾选的论文。";
-    $("language").textContent=`翻译目标语言：${PL.language()}`;
-    if(PL.config.unified){
-      $("schemeRow").hidden=$("action").value==="translate";
-      $("start").textContent=busy?"正在处理…":`${action()==="translate"?"开始翻译":"开始识别"}${chosen.length?`（${chosen.length} 篇）`:""}`;
-      $("actionHint").textContent=$("action").value==="translate"?"翻译使用当前保存的识别结果；尚未识别时使用默认方案。"
-        : $("scheme").value==="cloud" ? "勾选的 PDF 会提交给飞桨云端 OCR。" : "仅处理勾选的论文。";
+  function summary(row, kind) {
+    if (!row.source) return { key: "unavailable", text: "—", tone: "idle" };
+    const record = PL.Store.get(row.source);
+    const result = kind === "ocr" ? record?.ocr : record?.translations?.[PL.language()];
+    const state = result?.state || "pending";
+    if (state === "ready" && kind === "translate" && PL.Editing.stale(record))
+      return { key: "pending", text: "待更新", tone: "warning", title: "解析原文已修改" };
+    if (state === "ready" && result?.needsReview)
+      return { key: "ready", text: "已完成 · 待核对", tone: "warning" };
+    const labels = { ready: kind === "ocr" ? "已识别" : "已翻译", failed: "失败 · 可重试",
+      processing: kind === "ocr" ? "识别中" : "翻译中", queued: "排队中", missing: "待下载",
+      pending: kind === "ocr" ? "未识别" : "未翻译" };
+    const tones = { ready: "ready", failed: "error", processing: "running", queued: "running", missing: "warning" };
+    return { key: state, text: labels[state] || labels.pending, tone: tones[state] || "idle", title: result?.message || "" };
+  }
+  function needsWork(row) {
+    return row.available && ["pending","failed","missing"].includes(summary(row, operation()).key);
+  }
+  function filtered() {
+    const query = $("search").value.trim().toLocaleLowerCase(), filter = $("statusFilter").value;
+    const result = rows.filter(row => {
+      if (query && ![row.title,row.creator,row.year].join(" ").toLocaleLowerCase().includes(query)) return false;
+      if (filter === "all") return true;
+      if (filter === "unavailable") return !row.available;
+      if (!row.available) return false;
+      return filter === "pending" ? needsWork(row) : summary(row, operation()).key === filter;
+    });
+    if ($("sort").value === "recent") result.sort((a,b) => b.dateAdded.localeCompare(a.dateAdded));
+    if ($("sort").value === "title") result.sort((a,b) => collator.compare(a.title,b.title));
+    return result;
+  }
+  function counts(all = filtered()) {
+    const chosen = selection.size, shown = all.filter(r => selection.has(r.id)).length;
+    const translating = operation() === "translate", locked = loading || busy;
+    $("selection").textContent = "已选 " + chosen + " 篇" + (chosen !== shown ? "（筛选内 " + shown + " 篇）" : "");
+    $("batchTitle").textContent = document.title = translating ? "批量翻译" : "批量识别";
+    const target = PL.language();
+    const langName = {zh:"中文", "zh-CN":"简体中文", "zh-TW":"繁体中文", en:"英语"}[target] || target;
+    $("language").textContent = translating ? "目标语言 · " + langName : "";
+    $("start").textContent = busy ? "正在处理…" : (translating ? "开始翻译" : $("force").checked ? "重新识别" : "开始识别") + (chosen ? "（" + chosen + " 篇）" : "");
+    $("start").disabled = locked || !chosen;
+    $("close").textContent = busy ? "关闭并在后台继续" : "关闭";
+    $("forceRow").hidden = translating;
+    $("schemeRow").hidden = translating || !PL.config.unified;
+    $("actionHint").hidden = busy || !!$("notice").textContent;
+    $("actionHint").textContent = translating ? "已有译文直接复用，缺少解析原文时会先识别。" :
+      $("scheme").value === "cloud" && PL.config.unified ? "选中的 PDF 会上传到飞桨云端识别。" :
+      $("force").checked ? "将重新识别选中的 PDF。" : "已有识别结果直接复用。";
+    for (const id of ["scope","action","force","scheme","selectFiltered","selectPending","clearSelection","selectPage"]) $(id).disabled = locked;
+    $("clearSelection").disabled = locked || !chosen;
+    const selectable = all.slice(page*pageSize,(page+1)*pageSize).filter(row => row.available);
+    $("selectPage").disabled = locked || !selectable.length;
+    $("selectPage").checked = !!selectable.length && selectable.every(row => selection.has(row.id));
+    $("selectPage").indeterminate = !$("selectPage").checked && selectable.some(row => selection.has(row.id));
+  }
+  function statusCell(el, data) {
+    if (el.textContent !== data.text) el.textContent = data.text;
+    if (el.dataset.tone !== data.tone) el.dataset.tone = data.tone;
+    const title = data.title || data.text;
+    if (el.title !== title) el.title = title;
+  }
+  function render(all = filtered()) {
+    const pages = Math.ceil(all.length/pageSize);
+    page = Math.max(0,Math.min(page,Math.max(0,pages-1)));
+    visibleIDs = all.map(row => row.id);
+    onScreen = [];
+    const frag = document.createDocumentFragment();
+    for (const row of all.slice(page*pageSize,(page+1)*pageSize)) {
+      const tr = node("tr",frag), chosen = selection.has(row.id);
+      tr.classList.toggle("checked",chosen);
+      tr.classList.toggle("unavailable",!row.available);
+      tr.dataset.sourceId = String(row.id);
+      const box = node("input",node("td",tr)); box.type = "checkbox"; box.checked = chosen;
+      box.disabled = busy || loading || !row.available; box.id = "select-paper-" + row.id;
+      box.setAttribute("aria-label","选择论文 " + row.title);
+      box.addEventListener("change",() => {
+        if (box.checked) selection.add(row.id); else selection.delete(row.id);
+        tr.classList.toggle("checked",box.checked); counts();
+      });
+      const cell = node("td",tr), title = node("label",cell,row.title);
+      title.className = "paper-title"; title.htmlFor = box.id; title.title = row.title;
+      if ($("sort").value === "recent" && row.localAdded)
+        node("div",cell,"添加于 " + row.localAdded).className = "paper-detail";
+      const attachmentLabel = row.reason || (row.pdfTitle !== row.title ? row.pdfTitle : "");
+      if (attachmentLabel) {
+        const detail = node("div",cell,attachmentLabel);
+        detail.className = "paper-detail"; detail.title = attachmentLabel;
+      }
+      node("td",tr,[row.creator,row.year].filter(Boolean).join(" · ") || "—");
+      const cells = {};
+      for (const kind of ["ocr","translate"]) {
+        cells[kind] = node("span",node("td",tr)); cells[kind].className = "state-label";
+        statusCell(cells[kind],summary(row,kind));
+      }
+      onScreen.push({row,cells});
     }
-    for(const id of ["scope","action","force","scheme","selectFiltered","selectPending","clearSelection","selectPage"])$(id).disabled=busy||loading;
-    $("close").textContent=busy?"关闭（后台继续）":"关闭";
-    const onPage=filtered().slice(page*size,(page+1)*size).filter(row=>row.available);
-    $("selectPage").checked=!!onPage.length&&onPage.every(row=>selection.has(row.id));
-    $("selectPage").indeterminate=onPage.some(row=>selection.has(row.id))&&!$("selectPage").checked;
+    $("papers").replaceChildren(frag);
+    $("empty").hidden = !!all.length;
+    $("empty").textContent = loading ? "正在读取文献…" : rows.length ? "没有符合当前条件的论文。可更换状态或搜索词。" : "当前范围没有可列出的文献。";
+    $("pageInfo").textContent = all.length ? (page*pageSize+1) + "–" + Math.min(all.length,(page+1)*pageSize) + " / " + all.length + " 篇" : "0 篇";
+    $("previous").disabled = page === 0; $("next").disabled = page+1 >= pages;
+    counts(all);
   }
-  function render(){
-    const all=filtered();page=Math.max(0,Math.min(page,Math.max(0,Math.ceil(all.length/size)-1)));
-    const current=all.slice(page*size,(page+1)*size),body=$("papers");body.replaceChildren();
-    for(const row of current){
-      const tr=element("tr",null,body);tr.dataset.sourceId=String(row.id);tr.classList.toggle("checked",selection.has(row.id));tr.classList.toggle("unavailable",!row.available);
-      const check=element("input",null,element("td",null,tr));check.type="checkbox";check.checked=selection.has(row.id);check.disabled=busy||loading||!row.available;
-      check.setAttribute("aria-label",`选择论文：${row.title}`);check.dataset.id=String(row.id);
-      check.addEventListener("change",()=>{check.checked?selection.add(row.id):selection.delete(row.id);tr.classList.toggle("checked",check.checked);counts();});
-      const title=element("td",null,tr),name=element("label",row.title,title);name.className="paper-title";name.title=row.title;
-      name.addEventListener("click",()=>{if(!check.disabled)check.click();});
-      element("div",row.reason||row.pdfTitle,title).className="paper-detail";
-      element("td",[row.creator,row.year].filter(Boolean).join(" · "),tr);
-      const statuses=label(row);
-      element("td",statuses.ocr,tr).dataset.status="ocr";element("td",statuses.translate,tr).dataset.status="translate";
+  function notice(text, tone = "") {
+    $("notice").textContent = text; $("notice").dataset.tone = tone;
+    $("actionHint").hidden = busy || !!text;
+  }
+  async function load() {
+    const request = ++generation;
+    loading = true; notice(""); render();
+    try {
+      const next = await PL.BatchPicker.rows(owner,$("scope").value);
+      if (window.closed || request !== generation) return;
+      const valid = new Set(next.filter(row => row.available).map(row => row.id));
+      for (const id of selection) if (!valid.has(id)) selection.delete(id);
+      if (!initialized) for (const row of next) if (row.available && row.preselected) selection.add(row.id);
+      rows = next; initialized = true; page = 0;
+    } catch (error) {
+      if (!window.closed && request === generation) { rows = []; selection.clear(); notice(error.message,"error"); }
+    } finally {
+      if (!window.closed && request === generation) { loading = false; render(); }
     }
-    $("empty").hidden=!!all.length;$("empty").textContent=loading?"正在加载论文列表…":"没有符合条件的论文。可切换范围或清空搜索。";
-    $("pageInfo").textContent=all.length?`${page*size+1}–${Math.min(all.length,(page+1)*size)} / ${all.length} 篇`:"0 篇";
-    $("previous").disabled=page===0;$("next").disabled=(page+1)*size>=all.length;
-    counts();
   }
-  async function load(){
-    const request=++generation;loading=true;$("notice").textContent="";render();
-    try{
-      const loaded=await PL.BatchPicker.rows(owner,$("scope").value);
-      if(window.closed||request!==generation)return;
-      rows=loaded;
-      rowsByID=new Map(rows.map(row=>[String(row.id),row]));
-      if(!initialized){selection=new Set(rows.filter(row=>row.available&&row.preselected).map(row=>row.id));initialized=true;}
-      else selection=new Set(rows.filter(row=>row.available&&selection.has(row.id)).map(row=>row.id));
-      page=0;
-    }catch(error){if(!window.closed&&request===generation){rows=[];$("notice").textContent=error.message;}}
-    finally{if(!window.closed&&request===generation){loading=false;render();}}
+  function setAction(value) {
+    if (busy) return;
+    $("action").value = value === "translate" ? "translate" : "ocr";
+    $("force").checked = value === "force-ocr"; notice(""); page=0; render();
   }
-  function setAction(value){if(busy)return;$("action").value=value==="translate"?"translate":"ocr";$("force").checked=value==="force-ocr";counts();}
-  $("search").addEventListener("input",()=>{page=0;render();});$("scope").addEventListener("change",load);
-  $("action").addEventListener("change",counts);$("force").addEventListener("change",counts);
-  $("scheme").addEventListener("change",counts);
-  $("selectFiltered").addEventListener("click",()=>{for(const row of filtered())if(row.available)selection.add(row.id);render();});
-  $("clearSelection").addEventListener("click",()=>{selection.clear();render();});
-  $("selectPending").addEventListener("click",()=>{
-    selection.clear();
-    for(const row of filtered())if(row.available){
-      const kind=$("action").value,state=PL.Store.get(row.source),status=kind==="translate"?state?.translations?.[PL.language()]:state?.ocr;
-      if(!status?.attachmentID||status.state!=="ready"||(kind==="translate"&&PL.Editing.stale(state)))selection.add(row.id);
+  $("search").addEventListener("input",() => { page=0; render(); });
+  for (const id of ["sort","statusFilter"]) $(id).addEventListener("change",() => { page=0; render(); });
+  $("scope").addEventListener("change",load);
+  $("action").addEventListener("change",() => setAction(operation()));
+  for (const id of ["force","scheme"]) $(id).addEventListener("change",() => counts());
+  $("selectFiltered").addEventListener("click",() => { for (const row of filtered()) if (row.available) selection.add(row.id); render(); });
+  $("selectPending").addEventListener("click",() => { selection.clear(); for (const row of filtered()) if (needsWork(row)) selection.add(row.id); render(); });
+  $("clearSelection").addEventListener("click",() => { selection.clear(); render(); });
+  $("selectPage").addEventListener("change",() => {
+    for (const row of filtered().slice(page*pageSize,(page+1)*pageSize)) {
+      if (!row.available) continue;
+      if ($("selectPage").checked) selection.add(row.id); else selection.delete(row.id);
     }
     render();
   });
-  $("selectPage").addEventListener("change",()=>{for(const row of filtered().slice(page*size,(page+1)*size))if(row.available)$("selectPage").checked?selection.add(row.id):selection.delete(row.id);render();});
-  $("previous").addEventListener("click",()=>{page--;render();});$("next").addEventListener("click",()=>{page++;render();});
-  $("close").addEventListener("click",()=>window.close());
-  $("start").addEventListener("click",async()=>{
-    if(busy||loading||!selection.size)return;
-    const chosen=[...selection],kind=action();busy=true;render();$("notice").textContent=`已提交 ${chosen.length} 篇，正在后台处理…`;
-    try{
-      const batch=await PL.BatchPicker.submit(owner,kind,rows,chosen,PL.config.unified && kind!=="translate" ? $("scheme").value : undefined);
-      if(!window.closed)$("notice").textContent=`已完成：成功 ${batch?.success||0} 篇${batch?.failed?`，失败 ${batch.failed} 篇`:""}。可关闭窗口后自行查看结果。`;
-    }catch(error){if(!window.closed)$("notice").textContent=error.message;}
-    finally{if(!window.closed){busy=false;render();}}
+  $("previous").addEventListener("click",() => { page--; render(); });
+  $("next").addEventListener("click",() => { page++; render(); });
+  $("close").addEventListener("click",() => window.close());
+  function progress(batch) {
+    if (window.closed || !batch) return;
+    $("batchProgress").max = Math.max(batch.total,1); $("batchProgress").value = batch.done;
+    notice("已处理 " + batch.done + " / " + batch.total + " 篇，成功 " + batch.success + " 篇，失败 " + batch.failed + " 篇");
+  }
+  $("start").addEventListener("click",async () => {
+    if (busy || loading || !selection.size) return;
+    busy = true; currentBatch = null;
+    $("batchProgress").hidden = false; $("batchProgress").removeAttribute("value");
+    const chosen = [...selection], kind = taskKind();
+    notice("正在提交 " + chosen.length + " 篇文献…"); render();
+    try {
+      const batch = await PL.BatchPicker.submit(owner,kind,rows,chosen,
+        PL.config.unified && kind !== "translate" ? $("scheme").value : undefined,
+        created => { currentBatch = created; progress(created); });
+      if (!window.closed) notice("处理完成，成功 " + (batch?.success || 0) + " 篇" + (batch?.skipped ? "，跳过 " + batch.skipped + " 篇" : "") + "。","success");
+    } catch (error) {
+      if (!window.closed) notice((currentBatch ? "成功 " + currentBatch.success + " 篇，失败 " + currentBatch.failed + " 篇。\n" : "") + error.message,"error");
+    } finally {
+      if (!window.closed) { busy = false; currentBatch = null; $("batchProgress").hidden = true; render(); }
+    }
   });
-  const timer=window.setInterval(()=>{
-    if(window.closed)return;
-    for(const tr of $("papers").children){const row=rowsByID.get(tr.dataset.sourceId);if(!row)continue;const statuses=label(row);for(const [kind,text]of Object.entries(statuses))tr.querySelector(`[data-status="${kind}"]`).textContent=text;}
-    if(busy){const batch=PL.Tasks.lastBatch;$("notice").textContent=batch&&!batch.finished?`正在处理 ${batch.done}/${batch.total} 篇 · 成功 ${batch.success} · 失败 ${batch.failed}`:$("notice").textContent;}
+  const timer = window.setInterval(() => {
+    if (window.closed || loading) return;
+    if ($("statusFilter").value !== "all") {
+      const all = filtered();
+      if (all.length !== visibleIDs.length || all.some((r,i) => r.id !== visibleIDs[i])) { render(all); }
+    }
+    for (const {row,cells} of onScreen) for (const kind of ["ocr","translate"]) statusCell(cells[kind],summary(row,kind));
+    if (busy && currentBatch) progress(currentBatch);
   },1000);
-  window.addEventListener("unload",()=>window.clearInterval(timer),{once:true});
-  $("schemeRow").hidden=!PL.config.unified;
-  if(PL.config.unified)$("scheme").value=PL.Recognition.defaultMode();
-  window.PaperLoomBatch={setAction,reload:load};setAction(args.action);load();
+  window.addEventListener("unload",() => window.clearInterval(timer),{once:true});
+  if (PL.config.unified) $("scheme").value = PL.Recognition.defaultMode();
+  window.PaperLoomBatch = {setAction,reload:load};
+  setAction(initialAction); load();
 });

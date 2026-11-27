@@ -58,6 +58,7 @@ async function startup({ id, rootURI } = {}) {
   }
   PaperLoom.config = JSON.parse(await Zotero.File.getResourceAsync(rootURI + "config.json"));
   PaperLoom.version = JSON.parse(await Zotero.File.getResourceAsync(rootURI + "manifest.json")).version;
+  PaperLoom.chromeStyle = await Zotero.File.getResourceAsync(rootURI + "content/reader-ui.css");
   PaperLoom.readerStyle = await Zotero.File.getResourceAsync(rootURI + "content/reader.css");
   PaperLoom.chrome = Cc["@mozilla.org/addons/addon-manager-startup;1"].getService(Ci.amIAddonManagerStartup)
     .registerChrome(Services.io.newURI(rootURI + "manifest.json"), [["content", "paperloom", "content/"]]);

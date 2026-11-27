@@ -1,302 +1,210 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>论文翻译大师本地服务</title>
-<style>
-  :root { --bg:#f8fafc; --fg:#1a1a1a; --muted:#6b7280; --accent:#2563eb; --border:#e5e7eb; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
-  .wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px 80px; }
-  h1 { font-size: 22px; }
-  .sub { color: var(--muted); margin-top: -6px; }
-
-  #drop {
-    border: 2px dashed #cbd5e1;
-    border-radius: 12px;
-    padding: 44px 20px;
-    text-align: center;
-    cursor: pointer;
-    margin: 20px 0;
-    background: #fff;
-    transition: border-color .2s;
-  }
-  #drop.dragover { border-color: var(--accent); background: #eff6ff; }
-  #drop .big { font-size: 16px; font-weight: 600; }
-  #drop .small { color: var(--muted); font-size: 13px; margin-top: 6px; }
-
-  .card {
-    background: #fff;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px;
-    margin: 14px 0;
-  }
-  .card h2 { font-size: 15px; margin: 0 0 10px; }
-
-  .progress-bar { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
-  .progress-fill { height: 100%; width: 0; background: var(--accent); transition: width .4s; }
-  .progress-text { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
-
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
-  th { color: var(--muted); font-weight: 600; }
-  td.col-title { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  a { color: var(--accent); text-decoration: none; }
-
-  .pair-code {
-    font-size: 28px;
-    letter-spacing: 10px;
-    font-weight: 700;
-    font-family: ui-monospace, Consolas, monospace;
-    color: var(--accent);
-    text-align: center;
-    margin: 10px 0;
-  }
-  button {
-    background: var(--accent); color: #fff; border: none; border-radius: 6px;
-    padding: 8px 16px; cursor: pointer; font-size: 13px;
-  }
-  .status { font-size: 13px; margin-top: 8px; }
-  .status.bad { color: #b91c1c; }
-  .status.good { color: #047857; }
-</style>
-</head>
-<body>
-<div class="wrap">
-  <h1>📄 论文翻译大师本地服务 <button id="btn-settings" style="font-size:14px">⚙ 翻译设置</button></h1>
-  <p class="sub">把 PDF 拖进来，生成可被沉浸式翻译识别的 HTML 阅读页 · 全部在本地处理</p>
-
-  <div id="drop">
-    <div class="big">拖放 PDF 到这里，或点击选择文件</div>
-    <div class="small">支持单文件 · 最大 200MB · 转换完成后自动打开阅读页</div>
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>论文翻译大师 · 本地工作台</title><link rel="icon" href="data:,">
+<style>:root{color-scheme:light dark;--bg:#f3f6f6;--surface:#fff;--text:#172e37;--muted:#506770;--line:#cedbdd;--soft:#ecf3f2;--accent:#096769;--on:#fff;--warn:#81580e;--bad:#a33939}
+@media(prefers-color-scheme:dark){:root{--bg:#1f2529;--surface:#292f34;--text:#eef2f4;--muted:#b7c8ce;--line:#4a565d;--soft:#283f40;--accent:#7cd3c8;--on:#082927;--warn:#eeca82;--bad:#ffaaa6}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 system-ui,"Microsoft YaHei UI",sans-serif}
+[hidden]{display:none!important}h1,h2,h3,p{margin:0}h1{font-size:clamp(27px,3.7vw,38px);line-height:1.2;letter-spacing:-.025em;font-weight:650}h2{font-size:18px;line-height:1.35}h3{font-size:14px}
+button,input,.button{font:inherit;color:inherit}button,.button,input{background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:6px 12px}button,.button{cursor:pointer;line-height:1.45;text-decoration:none;white-space:nowrap}
+button:hover:not(:disabled),.button:hover{color:var(--accent);border-color:var(--accent)}button:disabled{opacity:.55;cursor:default}.primary{background:var(--accent);border-color:var(--accent);color:var(--on);font-weight:600}.primary:hover:not(:disabled){color:var(--on);filter:brightness(.92)}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.top{border-bottom:1px solid var(--line);background:var(--surface)}.top-inner,.wrap{width:min(1050px,100%);margin:auto;padding-inline:clamp(16px,4vw,38px)}
+.top-inner{min-height:62px;display:flex;align-items:center;justify-content:space-between;gap:15px}.brand{display:inline-flex;align-items:center;gap:10px;font-size:16px;font-weight:650}.brand-mark{width:21px;height:24px;border-radius:3px;background:var(--accent);border-inline-start:4px double var(--on);box-shadow:-3px 3px 0 var(--line)}
+.wrap{padding-block:clamp(25px,5vw,49px) 70px}.page-head{margin-bottom:23px}.workspace{display:grid;grid-template-columns:1.6fr 1fr;gap:16px}.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:clamp(15px,2.5vw,24px);min-width:0}
+.hint,.status,.file-name{color:var(--muted);font-size:13px}.card h2+.hint{margin-top:10px}.pair button{margin-top:16px}.pair output{font:600 24px/1.5 ui-monospace,Consolas,monospace;letter-spacing:.18em;color:var(--accent);display:block;margin-top:8px}
+#drop{margin-top:15px;width:100%;min-height:105px;border:1px dashed var(--accent);border-radius:8px;display:flex;flex-direction:column;gap:4px;align-items:center;justify-content:center;color:var(--accent);background:var(--soft)}
+#drop:hover,#drop.dragover{border-style:solid}#drop strong{font-size:17px}#drop span{font-size:12px;color:var(--muted)}.job{margin-top:16px}.job h3{overflow-wrap:anywhere}progress{display:block;width:100%;height:6px;accent-color:var(--accent);margin:8px 0}.status{overflow-wrap:anywhere;white-space:pre-wrap}.status:empty{display:none}.status[data-tone=error]{color:var(--bad)}.status[data-tone=success]{color:var(--accent)}.job .actions,.pair .status{margin-top:8px}
+.documents{margin-top:16px}.docs-head,.actions,.title-count,.dialog-head,.dialog-footer{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.docs-head,.dialog-head,.dialog-footer{justify-content:space-between}.title-count{gap:7px}.docs-head .actions{gap:6px;flex-wrap:nowrap}.docs-head input{width:min(205px,100%)}.docs-head{margin-bottom:14px}
+.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;text-align:start;font-size:14px}th,td{text-align:start;padding:10px 9px;border-bottom:1px solid var(--line)}th{font-size:12px;font-weight:600;color:var(--muted);background:var(--bg)}td:not(:first-child){white-space:nowrap;font-variant-numeric:tabular-nums}td:first-child{width:65%}td a{color:var(--text);text-decoration:none;font-weight:550}td a:hover{color:var(--accent);text-decoration:underline}.file-name{overflow-wrap:anywhere}tbody tr:last-child td{border-bottom:0}.state{color:var(--accent)}.state.warn{color:var(--warn)}.state::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-inline-end:6px}
+dialog{width:min(475px,calc(100vw - 24px));max-height:calc(100dvh - 30px);padding:0;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:12px;box-shadow:0 16px 65px #14252a32}
+dialog::backdrop{background:#13222a66}.dialog-head,.dialog-body,.dialog-footer{padding:15px 20px}.dialog-head{border-bottom:1px solid var(--line)}.dialog-body label{display:grid;grid-template-columns:83px minmax(0,1fr);align-items:center;gap:8px;margin:8px 0}.dialog-body input{width:100%;min-width:0}.dialog-body details{margin-top:14px}.dialog-body summary{cursor:pointer;color:var(--accent)}.dialog-body .checkline{display:flex;font-size:13px}.checkline input{width:auto;accent-color:var(--accent)}.dialog-footer{border-top:1px solid var(--line)}.dialog-footer .actions{margin-inline-start:auto}
+@media(max-width:670px){.workspace{grid-template-columns:1fr}.top-inner{min-height:52px}.wrap{padding-top:22px}.documents,.workspace{gap:10px}.docs-head .actions{width:100%}.docs-head input{flex:1;min-width:0}.documents td,.documents th{padding:7px 5px}.documents td:nth-child(3),.documents th:nth-child(3){display:none}}
+@media(max-width:380px){.dialog-body label{grid-template-columns:1fr;gap:3px}}
+</style></head><body>
+<header class="top"><div class="top-inner"><span class="brand"><span class="brand-mark" aria-hidden="true"></span>论文翻译大师</span><button id="btn-settings" type="button" aria-haspopup="dialog">翻译设置</button></div></header>
+<main class="wrap">
+  <header class="page-head"><h1>本地工作台</h1></header>
+  <div class="workspace">
+    <section class="card upload"><h2>解析 PDF</h2><button type="button" id="drop"><strong>选择或拖入 PDF</strong><span>单个文件，最大 200 MB</span></button><input id="file" type="file" accept=".pdf,application/pdf" hidden><p id="file-status" class="status" role="status"></p>
+      <div id="job-card" class="job" hidden><h3 id="job-title">当前任务</h3><progress id="progress" aria-label="文献处理进度"></progress><p id="progress-text" class="status" role="status"></p><div class="actions"><a class="button primary" id="btn-open" target="_blank" rel="noopener" hidden>打开阅读页</a><button id="btn-retry" type="button" hidden>重试</button></div></div>
+    </section>
+    <section class="card pair"><h2>浏览器扩展配对</h2><p class="hint">在 Chrome 或 Edge 扩展中选择「配对本地服务」，输入此处生成的配对码。</p><button type="button" id="btn-new-code">生成配对码</button><output id="pair-code" hidden></output><p id="pair-status" class="status" role="status"></p></section>
   </div>
-  <input type="file" id="file" accept=".pdf,application/pdf" hidden>
-
-  <div class="card" id="job-card" hidden>
-    <h2 id="job-title">任务</h2>
-    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
-    <p class="progress-text" id="progress-text"></p>
-    <div style="margin-top:10px">
-      <button id="btn-open" hidden>📖 打开阅读页</button>
-      <button id="btn-retry" hidden style="background:#b91c1c">重试</button>
-    </div>
+  <section class="card documents"><div class="docs-head"><div class="title-count"><h2>已生成的文献</h2><span id="doc-count" class="hint"></span></div><div class="actions"><input id="doc-search" type="search" aria-label="搜索已生成的文献" placeholder="搜索标题或文件名"><button type="button" id="doc-refresh">刷新</button></div></div>
+    <p id="docs-status" role="status" class="status">正在读取文献…</p>
+    <div class="table-wrap"><table id="doc-table" hidden><thead><tr><th scope="col">文献</th><th scope="col">页数</th><th scope="col">内容块</th><th scope="col">状态</th></tr></thead><tbody id="docs-list"></tbody></table></div>
+  </section>
+</main>
+<dialog id="settings-card" aria-labelledby="settings-title"><form id="settings-form">
+  <div class="dialog-head"><h2 id="settings-title">翻译设置</h2><button id="s-close" type="button" aria-label="关闭设置">关闭</button></div>
+  <div class="dialog-body"><label>接口地址<input id="s-base" placeholder="https://api.openai.com/v1" spellcheck="false"></label><label>模型名称<input id="s-model" placeholder="服务商提供的模型 ID" spellcheck="false"></label>
+    <label>API 密钥<input id="s-key" type="password" autocomplete="off" placeholder="留空保留已保存的密钥"></label>
+    <label>目标语言<input id="s-lang" value="zh" placeholder="zh / en / zh-TW"></label>
+    <details><summary>高级选项</summary><div class="advanced"><label>采样温度<input id="s-temperature" inputmode="decimal" placeholder="留空使用模型默认值"></label><label>并发数<input id="s-conc" type="number" min="1" max="16" value="4"></label>
+    <label class="checkline"><input id="s-clear" type="checkbox">保存时清除现有密钥</label></div></details>
   </div>
-
-  <div class="card">
-    <h2>浏览器插件配对</h2>
-    <p class="sub" style="margin-top:0">
-      在 Chrome/Edge 扩展弹窗中点击"配对本地服务"并输入以下配对码
-      （10 分钟内有效）：
-    </p>
-    <div class="pair-code" id="pair-code">------</div>
-    <button id="btn-new-code">重新生成配对码</button>
-    <p class="status" id="pair-status"></p>
-  </div>
-
-  <div class="card">
-    <h2>已生成的文档</h2>
-    <div id="docs-list"><p class="sub">（暂无）</p></div>
-  </div>
-</div>
-
-<script>
-(function () {
-  "use strict";
-  var drop = document.getElementById("drop");
-  var fileInput = document.getElementById("file");
-  var jobCard = document.getElementById("job-card");
-  var progressFill = document.getElementById("progress-fill");
-  var progressText = document.getElementById("progress-text");
-
-  // ---- 拖放上传 ----
-  function upload(file) {
-    var fd = new FormData();
-    fd.append("upload", file);
-    jobCard.hidden = false;
-    progressFill.style.width = "3%";
-    progressText.textContent = "上传中…";
-    fetch("/api/jobs", { method: "POST", body: fd })
-      .then(function (r) { return r.json(); })
-      .then(function (data) { poll(data.job_id); })
-      .catch(function (e) {
-        progressText.textContent = "上传失败：" + e.message;
-      });
+  <div class="dialog-footer"><p class="status" id="s-status" role="status"></p><div class="actions"><button id="s-test" type="button">测试连接</button><button class="primary" id="s-save" type="submit">保存设置</button></div></div>
+</form></dialog>
+<script>"use strict";
+const $ = id => document.getElementById(id);
+const say = (el,text,tone = "") => { el.textContent = text; el.dataset.tone = tone; };
+async function request(path, options) {
+  const response = await fetch(path,options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data.detail;
+    throw new Error(typeof detail === "string" ? detail : detail?.message || "本地服务返回 HTTP " + response.status);
   }
-
-  function stagePct(stage) {
-    var order = ["queued","queued_gpu","preflight","rendering_pages","layout_analysis","recognizing","normalizing","rendering_html","ready","needs_review","failed"];
-    var i = order.indexOf(stage);
-    return i < 0 ? 5 : Math.min(95, Math.round(i / order.length * 100));
+  return data;
+}
+const writeJSON = (method,body) => ({method,headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+let documentList = [], listRequest = 0;
+function renderDocs() {
+  const query = $("doc-search").value.trim().toLocaleLowerCase();
+  const rows = documentList.filter(row => [row.title,row.source_pdf].join(" ").toLocaleLowerCase().includes(query));
+  $("doc-count").textContent = query ? rows.length + " / " + documentList.length + " 篇" : documentList.length + " 篇";
+  const body = document.createDocumentFragment();
+  for (const row of rows) {
+    const tr = document.createElement("tr"), titleCell = tr.insertCell();
+    const title = document.createElement(row.has_html === false ? "span" : "a");
+    if (title.tagName === "A") {
+      title.href = "/documents/" + encodeURIComponent(row.id) + "/"; title.target="_blank"; title.rel="noopener";
+    }
+    title.textContent = row.title || row.source_pdf || row.id; titleCell.append(title);
+    if (row.source_pdf && row.title && row.source_pdf !== row.title) {
+      const file = document.createElement("div"); file.className = "file-name"; file.textContent = row.source_pdf; titleCell.append(file);
+    }
+    tr.insertCell().textContent = row.page_count ?? "—"; tr.insertCell().textContent = row.blocks ?? "—";
+    const state = document.createElement("span"); state.className = "state" + (row.status === "needs_review" ? " warn" : "");
+    state.textContent = ({ready:"已生成",needs_review:"待核对"})[row.status] || row.status || "—"; tr.insertCell().append(state);
+    body.append(tr);
   }
-  var stageLabel = {
-    queued: "排队中", queued_gpu: "等待 GPU OCR", preflight: "预检 PDF", rendering_pages: "渲染页面",
-    layout_analysis: "版面分析", recognizing: "识别内容（首次运行会下载模型，请耐心等待）",
-    normalizing: "规范化", rendering_html: "生成阅读页",
-    ready: "完成 ✓", needs_review: "完成（部分内容需核对）", failed: "失败 ✗"
-  };
-
-  function poll(jobId) {
-    fetch("/api/jobs/" + jobId)
-      .then(function (r) { return r.json(); })
-      .then(function (job) {
-        progressFill.style.width = stagePct(job.state) + "%";
-        progressText.textContent = (stageLabel[job.state] || job.state) +
-          (job.progress && job.progress.message ? " — " + job.progress.message : "");
-        var openBtn = document.getElementById("btn-open");
-        var retryBtn = document.getElementById("btn-retry");
-        if (["ready", "needs_review", "failed"].indexOf(job.state) >= 0) {
-          if (job.state === "failed") {
-            progressText.textContent = "失败：" + (job.errors || []).join("；");
-            retryBtn.hidden = false;
-            retryBtn.onclick = function () {
-              retryBtn.hidden = true;
-              upload(fileInput.files && fileInput.files[0]);
-            };
-          } else if (job.document_id) {
-            // 阅读页必须由用户手势打开（异步 window.open 会被浏览器拦截）
-            progressText.textContent = stageLabel[job.state] + " — 阅读页已生成，请点击下方按钮打开";
-            openBtn.hidden = false;
-            openBtn.onclick = function () {
-              window.open("/documents/" + job.document_id + "/", "_blank");
-            };
-            loadDocs();
-          }
-          return;
-        }
-        setTimeout(function () { poll(jobId); }, 1200);
-      })
-      .catch(function (e) {
-        progressText.textContent = "查询任务失败：" + e.message;
-      });
+  $("docs-list").replaceChildren(body); $("doc-table").hidden = !rows.length;
+  say($("docs-status"), rows.length ? "" : query ? "没有匹配的文献。" : "尚无文献，选择一份 PDF 即可开始解析。");
+}
+async function loadDocs() {
+  const id = ++listRequest; $("doc-refresh").disabled = true;
+  try {
+    const next = await request("/api/documents");
+    if (id !== listRequest) return;
+    documentList = next; renderDocs();
+  } catch (error) {
+    if (id === listRequest) say($("docs-status"),"读取文献失败，点击「刷新」重试。" + error.message,"error");
+  } finally { if (id === listRequest) $("doc-refresh").disabled = false; }
+}
+$("doc-refresh").addEventListener("click",loadDocs); $("doc-search").addEventListener("input",renderDocs);
+const stages = {queued:"排队中",queued_gpu:"等待识别引擎",preflight:"检查 PDF",rendering_pages:"渲染页面",
+  layout_analysis:"分析版面",recognizing:"识别文字",normalizing:"整理内容",rendering_html:"生成阅读页",ready:"已完成",needs_review:"已完成，部分内容待核对"};
+let current = 0, pollTimer;
+function retry(label, action) {
+  const btn = $("btn-retry"); btn.hidden = false; btn.textContent = label;
+  btn.onclick = () => { btn.hidden = true; action(); };
+}
+async function poll(jobID, sequence, file) {
+  if (sequence !== current) return;
+  try {
+    const job = await request("/api/jobs/" + encodeURIComponent(jobID));
+    if (sequence !== current) return;
+    const state = job.state, progress = job.progress || {}, bar = $("progress");
+    if (state === "failed" || state === "cancelled") {
+      bar.hidden = true; say($("progress-text"),(state === "cancelled" ? "任务已取消" : "解析失败") +
+        (job.errors?.length ? "，" + job.errors.join(" · ") : ""),"error");
+      retry("重新解析",() => upload(file)); return;
+    }
+    if (state === "ready" || state === "needs_review") {
+      bar.max = 1; bar.value = 1; say($("progress-text"),stages[state],"success");
+      if (job.document_id) { $("btn-open").href = "/documents/" + encodeURIComponent(job.document_id) + "/"; $("btn-open").hidden = false; }
+      loadDocs(); return;
+    }
+    if (progress.total > 0) { bar.max = progress.total; bar.value = Math.min(progress.page || 0,progress.total); }
+    else bar.removeAttribute("value");
+    const label = stages[state] || state || "处理中";
+    const pages = progress.total > 0 ? " · " + (progress.page || 0) + " / " + progress.total + " 页" : "";
+    const detail = progress.message && progress.message !== label ? " · " + progress.message : "";
+    say($("progress-text"),label + pages + detail);
+    pollTimer = setTimeout(() => poll(jobID,sequence,file),1200);
+  } catch (error) {
+    if (sequence !== current) return;
+    say($("progress-text"),"读取进度失败，" + error.message,"error"); $("progress").hidden = true;
+    retry("重新查询",() => { $("progress").hidden = false; poll(jobID,sequence,file); });
   }
-
-  drop.addEventListener("click", function () { fileInput.click(); });
-  drop.addEventListener("dragover", function (e) {
-    e.preventDefault();
-    drop.classList.add("dragover");
-  });
-  drop.addEventListener("dragleave", function () { drop.classList.remove("dragover"); });
-  drop.addEventListener("drop", function (e) {
-    e.preventDefault();
-    drop.classList.remove("dragover");
-    var f = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f) upload(f);
-  });
-  fileInput.addEventListener("change", function () {
-    if (fileInput.files[0]) upload(fileInput.files[0]);
-  });
-
-  // ---- 配对码 ----
-  function newPairCode() {
-    fetch("/api/browser/pair-code")
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        document.getElementById("pair-code").textContent = d.pair_code;
-        var s = document.getElementById("pair-status");
-        s.className = "status good";
-        s.textContent = "配对码有效 " + d.expires_in + " 秒";
-      });
+}
+async function upload(file) {
+  if (!file) return;
+  if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") { say($("file-status"),"请选择 PDF 文件。","error"); return; }
+  if (file.size > 200 * 1024 * 1024) { say($("file-status"),"文件超过 200 MB，请选择较小的 PDF。","error"); return; }
+  say($("file-status"),"");
+  $("job-card").hidden = false;
+  const sequence = ++current; clearTimeout(pollTimer);
+  $("job-title").textContent = file.name; $("btn-open").hidden = true; $("btn-retry").hidden = true;
+  const bar = $("progress"); bar.hidden = true; bar.removeAttribute("value");
+  bar.hidden = false; say($("progress-text"),"正在提交到本地服务…");
+  try {
+    const body = new FormData(); body.append("upload",file);
+    const job = await request("/api/jobs",{method:"POST",body});
+    if (!job.job_id) throw new Error("服务尚未创建任务");
+    if (sequence === current) poll(job.job_id,sequence,file);
+  } catch (error) {
+    if (sequence !== current) return;
+    bar.hidden = true; say($("progress-text"),"提交失败，" + error.message,"error"); retry("重新提交",() => upload(file));
   }
-  document.getElementById("btn-new-code").addEventListener("click", newPairCode);
-  newPairCode();
-
-  // ---- 文档列表 ----
-  function escHtml(s) {
-    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+$("drop").addEventListener("click",() => $("file").click());
+$("file").addEventListener("change",() => { const file = $("file").files[0]; $("file").value = ""; upload(file); });
+$("drop").addEventListener("dragover",event => { event.preventDefault(); $("drop").classList.add("dragover"); });
+$("drop").addEventListener("dragleave",() => $("drop").classList.remove("dragover"));
+$("drop").addEventListener("drop",event => { event.preventDefault(); $("drop").classList.remove("dragover"); upload(event.dataTransfer.files[0]); });
+let pairTimeout;
+$("btn-new-code").addEventListener("click",async () => {
+  const button = $("btn-new-code"); button.disabled = true;
+  try {
+    const data = await request("/api/browser/pair-code");
+    clearTimeout(pairTimeout);
+    $("pair-code").textContent = data.pair_code; $("pair-code").hidden = false;
+    button.textContent = "重新生成";
+    say($("pair-status"),"有效期 " + Math.ceil(data.expires_in/60) + " 分钟","success");
+    pairTimeout = setTimeout(() => { $("pair-code").hidden = true; $("pair-code").textContent = ""; say($("pair-status"),"配对码已过期。"); },data.expires_in*1000);
+  } catch (error) { say($("pair-status"),error.message,"error"); }
+  finally { button.disabled = false; }
+});
+const dialog = $("settings-card"), form = $("settings-form");
+let settingsRevision = 0, settingsReady = false, sending = false;
+function lockFields(locked) {
+  for (const el of form.elements) if (el.id !== "s-close") el.disabled = locked;
+}
+$("btn-settings").addEventListener("click",async () => {
+  const revision = ++settingsRevision;
+  dialog.showModal(); form.reset(); settingsReady = false; lockFields(true); say($("s-status"),"正在读取配置…");
+  try {
+    const config = await request("/api/settings");
+    if (revision !== settingsRevision || !dialog.open) return;
+    $("s-base").value = config.llm_base_url || ""; $("s-model").value = config.llm_model || "";
+    $("s-key").placeholder = config.llm_api_key ? "已保存，留空即可保留" : "本地模型可留空";
+    $("s-temperature").value = config.llm_temperature ?? ""; $("s-conc").value = config.llm_concurrency || 4;
+    $("s-lang").value = config.lang_to || "zh"; settingsReady = true; lockFields(false); say($("s-status"),"");
+    $("s-base").focus();
+  } catch (error) {
+    if (revision === settingsRevision && dialog.open) say($("s-status"),"读取失败，重新打开设置可重试。" + error.message,"error");
   }
-  function loadDocs() {
-    fetch("/api/documents")
-      .then(function (r) { return r.json(); })
-      .then(function (docs) {
-        var box = document.getElementById("docs-list");
-        if (!docs.length) { box.innerHTML = '<p class="sub">（暂无）</p>'; return; }
-        var rows = docs.map(function (d) {
-          var title = (d.title || "").trim() || "-";
-          return "<tr><td class=\"col-title\">" + escHtml(title) + "</td>" +
-            "<td><a href=\"/documents/" + d.id + "/\" target=\"_blank\">" +
-            escHtml(d.source_pdf || d.id) + "</a></td><td>" + d.page_count + " 页</td><td>" +
-            d.blocks + " 块</td><td>" + d.status + "</td></tr>";
-        }).join("");
-        box.innerHTML = "<table><thead><tr><th>论文名</th><th>文件名</th><th>页数</th><th>块数</th><th>状态</th></tr></thead><tbody>" + rows + "</tbody></table>";
-      });
-  }
-  loadDocs();
-})();
-
-  // ---- 翻译设置 ----
-  document.addEventListener("DOMContentLoaded", function () {
-  var settingsBtn = document.getElementById("btn-settings");
-  var settingsCard = document.getElementById("settings-card");
-  settingsBtn.addEventListener("click", function () {
-    settingsCard.hidden = !settingsCard.hidden;
-    if (!settingsCard.hidden) loadSettings();
-  });
-  function loadSettings() {
-    fetch("/api/settings").then(function (r) { return r.json(); }).then(function (s) {
-      document.getElementById("s-base").value = s.llm_base_url || "";
-      document.getElementById("s-key").value = s.llm_api_key || "";
-      document.getElementById("s-model").value = s.llm_model || "";
-      document.getElementById("s-temperature").value = s.llm_temperature ?? "";
-      document.getElementById("s-conc").value = s.llm_concurrency || 4;
-      document.getElementById("s-lang").value = s.lang_to || "zh";
-    }).catch(function () {
-      document.getElementById("s-status").textContent = "读取失败";
-      document.getElementById("s-status").className = "status bad";
-    });
-  }
-  document.getElementById("s-save").addEventListener("click", function () {
-    var body = {
-      llm_base_url: document.getElementById("s-base").value.trim(),
-      llm_api_key: document.getElementById("s-key").value.trim(),
-      llm_model: document.getElementById("s-model").value.trim(),
-      llm_temperature: document.getElementById("s-temperature").value.trim(),
-      llm_concurrency: parseInt(document.getElementById("s-conc").value, 10) || 4,
-      lang_to: document.getElementById("s-lang").value.trim() || "zh"
-    };
-    fetch("/api/settings", { method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body) })
-      .then(function (r) {
-        var st = document.getElementById("s-status");
-        if (r.ok) { st.textContent = "已保存"; st.className = "status good"; }
-        else { return r.json().then(function (d) { throw new Error(d.detail || "保存失败"); }); }
-      })
-      .catch(function (e) {
-        var st = document.getElementById("s-status");
-        st.textContent = e.message; st.className = "status bad";
-      });
-  });
-  document.getElementById("s-test").addEventListener("click", async function () {
-    var st = document.getElementById("s-status");
-    this.disabled = true;
-    st.textContent = "测试中...";
-    try {
-      var r = await fetch("/api/settings/test", {method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({llm_base_url: document.getElementById("s-base").value.trim(),
-          llm_api_key: document.getElementById("s-key").value.trim(), llm_model: document.getElementById("s-model").value.trim(),
-          llm_temperature: document.getElementById("s-temperature").value.trim()})});
-      var data = await r.json();
-      if (!r.ok) throw new Error(data.detail || "连接失败");
-      st.textContent = "连接成功：" + data.text; st.className = "status good";
-    } catch (e) { st.textContent = e.message; st.className = "status bad"; }
-    finally { this.disabled = false; }
-  });
-  });
+});
+$("s-close").addEventListener("click",() => dialog.close());
+dialog.addEventListener("close",() => { ++settingsRevision; settingsReady = false; sending = false; $("s-key").value = ""; $("s-clear").checked = false; });
+async function settingsAction(test) {
+  if (!settingsReady || sending || !form.reportValidity()) return;
+  const revision = settingsRevision;
+  const payload = {llm_base_url:$("s-base").value.trim(), llm_model:$("s-model").value.trim(),llm_temperature:$("s-temperature").value.trim()};
+  if ($("s-clear").checked || $("s-key").value) payload.llm_api_key = $("s-clear").checked ? "" : $("s-key").value.trim();
+  if (!test) { payload.llm_concurrency = Number($("s-conc").value); payload.lang_to = $("s-lang").value.trim() || "zh"; }
+  sending = true; lockFields(true); say($("s-status"),test ? "正在测试连接…" : "正在保存…");
+  try {
+    const data = await request(test ? "/api/settings/test" : "/api/settings",writeJSON(test ? "POST" : "PUT",payload));
+    if (revision !== settingsRevision) return;
+    if (!test) { $("s-key").value = ""; $("s-clear").checked = false; $("s-key").placeholder = data.llm_api_key ? "已保存，留空即可保留" : "本地模型可留空"; }
+    say($("s-status"),test ? "连接成功。" : "设置已保存。","success");
+  } catch (error) { if (revision === settingsRevision) say($("s-status"),error.message,"error"); }
+  finally { if (revision === settingsRevision) { sending = false; lockFields(false); } }
+}
+form.addEventListener("submit",event => { event.preventDefault(); settingsAction(false); });
+$("s-test").addEventListener("click",() => settingsAction(true));
+loadDocs();
 </script>
-
-  <!-- 翻译设置面板 -->
-  <div class="card" id="settings-card" hidden>
-    <h2>⚙ 翻译设置</h2>
-    <p class="small">配置后阅读页「译」按钮可用。支持任意 OpenAI 兼容接口(DeepSeek/Kimi/Qwen/Ollama 本地等)。
-    <br>留空服务地址即关闭翻译。密钥仅保存在本机 workspace/settings.json。</p>
-    <label class="row">服务地址 <input id="s-base" placeholder="https://api.deepseek.com/v1 或 http://localhost:11434/v1" style="width:340px"></label>
-    <label class="row">API Key <input id="s-key" type="password" placeholder="可留空(如 Ollama)" style="width:300px"></label>
-    <label class="row">模型名 <input id="s-model" placeholder="deepseek-chat / qwen2.5 / ..." style="width:200px"></label>
-    <label class="row">Temperature <input id="s-temperature" inputmode="decimal" placeholder="留空使用模型默认值"></label>
-    <label class="row">并发 <input id="s-conc" type="number" min="1" max="16" value="4" style="width:60px"></label>
-    <label class="row">目标语言 <input id="s-lang" value="zh" style="width:60px"></label>
-    <div class="row"><button id="s-save">保存</button><button id="s-test">测试连接</button><span id="s-status" class="status"></span></div>
-  </div>
-
-</body>
-</html>
+</body></html>

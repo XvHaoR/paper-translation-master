@@ -27,7 +27,7 @@
       if (data.type === "translation-mode") { await PL.ReaderUI.translationMode(data.mode === "translation" ? "translation" : "bilingual"); return true; }
       if (data.type === "locate") {
         if (state.mode !== "split") {
-          if (data.revealPDF === true) await PL.ReaderUI.setMode(state.reader, "split");
+          if (data.revealPDF === true) await PL.ReaderUI.setMode(state.reader, "split", { kind: state.kind, saved: state.saved });
           else return true; // Selecting/copying text keeps the user's reading mode.
         }
         return PL.ReaderUI.locate(state, data);

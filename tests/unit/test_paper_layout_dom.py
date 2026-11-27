@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.parametrize("case", ["abstracts", "captions", "boundaries", "orphan-captions",
-                                  "footnotes", "mapping-and-export", "editor-types"])
+                                  "footnotes", "mapping-and-export", "editor-types", "reader-toolbar-rerender"])
 def test_paper_layout_and_editor_dom(case):
     node = shutil.which("node")
     if not node:
