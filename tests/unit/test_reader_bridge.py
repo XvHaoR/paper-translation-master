@@ -84,7 +84,7 @@ for(const type of protocol.ACTION_TYPES){
   assert.equal(await parent.receiveMessage({name:'action',data:{id:7,type}}),'done');
 }
 assert.deepEqual(actions.map(action=>action.type),
-  ['locate','copy-latex','excel','save-ocr-edits','translation-mode','reader-scroll','selection-locate','selection-clear']);
+      ['locate','copy-latex','excel','save-ocr-edits','translation-mode','reader-scroll','selection-locate','selection-clear','annotation-save']);
 assert.throws(()=>parent.receiveMessage({name:'action',data:{type:'execute'}}),/不支持/);
 frame.isConnected=false;
 assert.equal(parent.receiveMessage({name:'ready'}).available,false);

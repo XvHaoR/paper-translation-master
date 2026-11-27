@@ -10,11 +10,14 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import math
 import os
 import re
+import ssl
 import threading
+import time
 import urllib.request
 import urllib.error
 from urllib.parse import urlsplit, urlunsplit
@@ -37,7 +40,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "llm_api_key": "",
     "llm_model": "",
     "llm_temperature": None,
-    "llm_concurrency": 8,
+    "llm_concurrency": 3,
     "lang_to": "zh",
 }
 
@@ -82,7 +85,7 @@ def load_settings(workspace: Path) -> dict[str, Any]:
     try:
         settings["llm_concurrency"] = int(settings["llm_concurrency"])
     except (TypeError, ValueError):
-        settings["llm_concurrency"] = 4
+        settings["llm_concurrency"] = DEFAULT_SETTINGS["llm_concurrency"]
     try:
         settings["llm_temperature"] = parse_temperature(settings["llm_temperature"])
     except ValueError:
@@ -102,7 +105,7 @@ def save_settings(workspace: Path, data: dict[str, Any]) -> dict[str, Any]:
     try:
         cur["llm_concurrency"] = max(1, min(16, int(cur["llm_concurrency"])))
     except (TypeError, ValueError):
-        cur["llm_concurrency"] = 4
+        cur["llm_concurrency"] = DEFAULT_SETTINGS["llm_concurrency"]
     cur["lang_to"] = str(cur.get("lang_to") or "zh").strip()[:8] or "zh"
     cur["llm_api_key"] = str(cur.get("llm_api_key") or "").strip()
     cur["llm_model"] = str(cur.get("llm_model") or "").strip()
@@ -122,6 +125,8 @@ def chat_url(base_url: str) -> str:
     """Accept a base URL or full completion URL; repair DeepSeek's other protocol URL."""
     parts = urlsplit(base_url.strip())
     path = parts.path.rstrip("/")
+    if not path and parts.hostname == "api.openai.com":
+        path = "/v1"
     if parts.hostname == "api.deepseek.com" and path in ("/anthropic", "/anthropic/v1"):
         path = "/v1"
     elif "/anthropic" in path or path.endswith("/messages"):
@@ -196,36 +201,58 @@ class TranslateCache:
 # ---- LLM 调用 ----
 
 def http_chat(base_url: str, api_key: str, model: str, messages: list[dict], timeout: int = 90, *,
-              temperature: float | None = None) -> str:
+              temperature: float | None = None, connection_attempts: int = 3) -> str:
     """OpenAI 兼容 /chat/completions 调用(标准库实现)。"""
     url = chat_url(base_url)
     payload = {"model": model, "messages": messages}
     if temperature is not None:
         payload["temperature"] = temperature
-    req = urllib.request.Request(
-        url, data=json.dumps(payload).encode("utf-8"), method="POST",
-        headers={"Content-Type": "application/json"},
-    )
+    headers = {"Content-Type": "application/json"}
     if api_key:
-        req.add_header("Authorization", f"Bearer {api_key}")
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = ""
+        headers["Authorization"] = f"Bearer {api_key}"
+    attempt = 0
+    while True:
+        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers, method="POST")
+        delay = 0.4 * 2 ** attempt
         try:
-            error = json.loads(exc.read().decode("utf-8")).get("error", {})
-            detail = error.get("message", "") if isinstance(error, dict) else str(error)
-        except (ValueError, UnicodeError):
-            pass
-        # Never echo a provider's copy of the credential into the reader.
-        if api_key:
-            detail = detail.replace(api_key, "[redacted]")
-        raise ValueError(f"LLM HTTP {exc.code}: {detail[:400] or exc.reason}") from exc
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as exc:
+            try:
+                error = json.loads(exc.read().decode()).get("error", {})
+                detail = str(error.get("message", "") if isinstance(error, dict) else error)
+                parameter = str(error.get("param", "") if isinstance(error, dict) else "")
+            except (ValueError, AttributeError):
+                detail, parameter = "", ""
+            if api_key:
+                detail = detail.replace(api_key, "[redacted]")
+            if exc.code in (400, 422) and "temperature" in payload and (
+                    parameter == "temperature" or "temperature" in detail.lower()):
+                del payload["temperature"]
+                continue
+            if exc.code not in (408, 429, 500, 502, 503, 504) or attempt + 1 >= connection_attempts:
+                raise ValueError(f"LLM HTTP {exc.code}: {detail[:400] or exc.reason}") from exc
+            header = (exc.headers or {}).get("Retry-After", "")
+            if header.isdigit():
+                delay = min(30, max(delay, int(header)))
+        except (urllib.error.URLError, ConnectionError, TimeoutError, ssl.SSLError,
+                http.client.IncompleteRead) as exc:
+            reason = getattr(exc, "reason", exc)
+            if (attempt + 1 >= connection_attempts or not isinstance(reason, (
+                    ConnectionError, TimeoutError, ssl.SSLEOFError, http.client.IncompleteRead))):
+                raise ValueError(f"翻译服务连接失败：{reason}。请检查接口地址、网络和代理。") from exc
+        time.sleep(delay)
+        attempt += 1
     try:
         content = data["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
         raise ValueError("LLM 返回格式不正确：缺少 choices[0].message.content") from exc
+    if data["choices"][0].get("finish_reason") == "length":
+        raise ValueError("模型输出达到长度限制，段落译文不完整")
+    if isinstance(content, list):
+        content = "".join(part["text"] for part in content if isinstance(part, dict)
+                          and part.get("type") in ("text", "output_text") and isinstance(part.get("text"), str))
     if not isinstance(content, str) or not content.strip():
         raise ValueError("LLM 返回空译文，请检查模型是否支持文本对话")
     return content.strip()
@@ -361,6 +388,7 @@ def translate_batch(
     settings: dict[str, Any],
     cache: TranslateCache,
     http_post: Callable[..., str] = http_chat,
+    *, exact: bool = False,
 ) -> dict[str, Any]:
     """翻译指定块:先合并为语义单元,再分段批量请求 LLM。
 
@@ -382,7 +410,7 @@ def translate_batch(
     base_url = settings.get("llm_base_url") or ""
     api_key = settings.get("llm_api_key") or ""
     temperature = parse_temperature(settings.get("llm_temperature"))
-    concurrency = max(1, min(16, int(settings.get("llm_concurrency") or 8)))
+    concurrency = max(1, min(16, int(settings.get("llm_concurrency") or 3)))
 
     abstract = ""
     for b in blocks:
@@ -392,7 +420,8 @@ def translate_batch(
                 break
 
     wanted = set(block_ids)
-    units = [u for u in build_units(blocks) if any(bid in wanted for bid in u["block_ids"])]
+    candidates = [b for b in blocks if b.get("id") in wanted] if exact else blocks
+    units = [u for u in build_units(candidates) if any(bid in wanted for bid in u["block_ids"])]
     covered = {bid for u in units for bid in u["block_ids"]}
 
     results: dict[str, dict[str, Any]] = {}
@@ -435,53 +464,85 @@ def translate_batch(
     if cur:
         segments.append(cur)
 
-    def work(seg: list[dict]) -> tuple[list[dict], dict[int, str] | None, str]:
-        prompt = build_batch_prompt(seg, abstract, lang_to)
-        messages = [{"role": "user", "content": prompt}]
-        last_err = ""
-        for attempt in range(3):
-            try:
-                out = http_post(base_url, api_key, model, messages, temperature=temperature)
-                parsed = parse_batch_output(out, len(seg))
-                missing = [i for i in range(len(seg)) if i not in parsed or not parsed[i]]
-                if missing:
-                    raise ValueError(f"缺少 [ID:{missing}] 的译文")
-                return seg, parsed, ""
-            except Exception as e:  # noqa: BLE001
-                last_err = f"{type(e).__name__}: {e}"
-                if attempt < 2:
-                    import time
+    fatal = threading.Event()
+    fatal_reason = []
+    def call(messages):
+        if fatal.is_set():
+            raise ValueError(fatal_reason[0])
+        try:
+            return http_post(base_url, api_key, model, messages, temperature=temperature)
+        except ValueError as exc:
+            if re.search(r"LLM HTTP (401|403|404)\b", str(exc)):
+                fatal_reason.append(str(exc))
+                fatal.set()
+            raise
 
-                    time.sleep(1 * (2 ** attempt))
-        return seg, None, last_err
+    def work(seg):
+        batch_units = []
+        partial = {}
+        for u in seg:
+            keys = [cache_key(pdf_hash, source, model, lang_to, base_url, temperature=temperature)
+                    for source in u["texts"]]
+            u["_individual_keys"] = keys
+            for j, key in enumerate(keys):
+                hit = cache.get(key)
+                if isinstance(hit, str) and hit.strip():
+                    partial[u["block_ids"][j]] = {"text":hit, "cached":True}
+            if not any(bid in partial for bid in u["block_ids"]):
+                batch_units.append(u)
+        parsed, batch_error = {}, ""
+        if batch_units:
+            try:
+                raw = call([{"role":"user", "content":build_batch_prompt(batch_units, abstract, lang_to)}])
+                parsed = parse_batch_output(raw, len(batch_units))
+            except (OSError, ValueError, RuntimeError) as exc:
+                batch_error = str(exc)
+        for index, u in enumerate(batch_units):
+            value = parsed.get(index, "")
+            if not value:
+                continue
+            multi = len(u["texts"]) > 1
+            if multi and not _BLOCK_MARK_RE.search(value):
+                continue
+            pieces = split_unit_output(value, len(u["texts"]))
+            inputs = split_unit_output(u["_body"], len(u["texts"]))
+            for j, output in pieces.items():
+                markers = r"\[\[EQ\d+\]\]"
+                if (output and sorted(re.findall(markers, output)) == sorted(re.findall(markers, inputs[j]))
+                        and not re.search(r"\[\[(?:B\d+)\]\]|\[ID:\d+\]", output)):
+                    partial[u["block_ids"][j]] = {"text":_restore_placeholders(output, u["_ph"]), "cached":False}
+        for u in seg:
+            for j, bid in enumerate(u["block_ids"]):
+                if bid not in partial:
+                    if batch_error and not re.search(
+                            r"LLM HTTP 413|context[_ ]length|context window|maximum context|too many tokens|长度限制",
+                            batch_error, re.I):
+                        partial[bid] = {"error":batch_error}
+                        continue
+                    # A one-block request has no positional ambiguity even if the model ignores numbering.
+                    body, equations = _placeholderize(u["texts"][j])
+                    try:
+                        answer = call([{"role":"system","content":f"Translate this excerpt into {lang_to}. Return only its translation. Keep [[EQn]] placeholders exactly."},
+                                       {"role":"user","content":body}]).strip()
+                        answer = re.sub(r"^\[ID:0\]\s*", "", answer)
+                        if (not answer or re.search(r"\[\[B\d+\]\]|\[ID:\d+\]", answer) or
+                                sorted(re.findall(r"\[\[EQ\d+\]\]", answer)) != sorted(equations)):
+                            raise ValueError("模型返回的段落标记或公式占位符与原文不符")
+                        partial[bid] = {"text":_restore_placeholders(answer, equations), "cached":False}
+                    except (OSError, ValueError, RuntimeError) as exc:
+                        partial[bid] = {"error":str(exc)}
+            values = [partial[bid].get("text") for bid in u["block_ids"]]
+            if all(values):
+                cache.put(u["_key"], values if len(values) > 1 else values[0])
+            else:
+                for key, value in zip(u["_individual_keys"], values):
+                    if value:
+                        cache.put(key, value)
+            for bid in u["block_ids"]:
+                partial[bid].update(unit=u["first_id"], blocks=[bid])
+        return partial
 
     with ThreadPoolExecutor(max_workers=max(1, min(concurrency, len(segments) or 1))) as pool:
-        for seg, parsed, err in pool.map(work, segments):
-            if parsed is None:
-                for u in seg:
-                    for bid in u["block_ids"]:
-                        results[bid] = {"error": err or "翻译失败", "unit": u["first_id"], "blocks": [bid]}
-                continue
-            for i, u in enumerate(seg):
-                out = parsed.get(i)
-                if out is None:
-                    for bid in u["block_ids"]:
-                        results[bid] = {"error": "缺少译文", "unit": u["first_id"], "blocks": [bid]}
-                    continue
-                parts = split_unit_output(out, len(u["block_ids"]))
-                translated = {j: _restore_placeholders(p, u["_ph"]) for j, p in parts.items()}
-                # 多块单元缓存整组译文(list),单块保持字符串(兼容旧缓存)
-                if len(translated) != len(u["block_ids"]):
-                    pass  # Partial output must be retried instead of poisoning the cache.
-                elif len(u["block_ids"]) == 1:
-                    cache.put(u["_key"], translated.get(0, ""))
-                else:
-                    cache.put(u["_key"], [translated.get(j, "") for j in range(len(u["block_ids"]))])
-                for j, bid in enumerate(u["block_ids"]):
-                    t = translated.get(j)
-                    if t:
-                        results[bid] = {"text": t, "cached": False, "unit": u["first_id"], "blocks": [bid]}
-                    else:
-                        results[bid] = {"error": "缺少该段译文", "unit": u["first_id"], "blocks": [bid]}
-
+        for part in pool.map(work, segments):
+            results.update(part)
     return {"results": results, "total_units": len(units)}

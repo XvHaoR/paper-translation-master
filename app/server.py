@@ -20,6 +20,8 @@ import shutil
 import threading
 import time
 import urllib.request
+from concurrent.futures import Future
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -28,9 +30,11 @@ from starlette.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from app.config import Settings, get_settings
+from app.config import Settings, artifact_path, get_settings
+from app.parsing import mineru_client
 from app.parsing.native_pdf import NativePdfExtractor
 from app.pipeline.orchestrator import ConvertOptions, Orchestrator
+from app.services.semantic_search import IndexPaper, SearchQuery, SearchScope, SemanticIndex
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +101,7 @@ class DocumentStore:
                     "source_pdf": meta.get("source_pdf", ""),
                     "page_count": meta.get("page_count", 0),
                     "blocks": len(blocks),
-                    "created_at": meta.get("created_at", ""),
+                    "created_at": meta.get("created_at") or "",
                     "status": "needs_review" if needs_review else "ready",
                     "has_html": (d / "index.html").is_file(),
                 }
@@ -129,6 +133,12 @@ def document_store(settings: Settings) -> DocumentStore:
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class LocalOCRWarmup:
+    mode: str
+    result: Future
+
+
 class JobStore:
     """任务去重 + JSON 持久化 + 单消费者 GPU 队列。"""
 
@@ -139,7 +149,8 @@ class JobStore:
         self.jobs_file = settings.workspace / "jobs.json"
         self._lock = threading.Lock()
         self._load()
-        self._queue: queue.Queue[tuple[str, Path, ConvertOptions] | None] = queue.Queue()
+        self._warmups: dict[str, Future] = {}
+        self._queue: queue.Queue[tuple[str, Path, ConvertOptions] | LocalOCRWarmup | None] = queue.Queue()
         self._worker = threading.Thread(
             target=self._worker_loop,
             name="paperloom-gpu-worker",
@@ -186,7 +197,8 @@ class JobStore:
                 str(options.render_dpi),
                 options.pages or "all",
                 "force" if options.force else "cached",
-                PARSER_VERSION if options.ocr_mode == "layout" else "",
+                (mineru_client.CACHE_VERSION + ":" + options.mineru_connection.cache_key
+                 if options.mineru_connection else PARSER_VERSION if options.ocr_mode == "layout" else ""),
             ]
         )
 
@@ -236,6 +248,16 @@ class JobStore:
         self._queue.put((job_id, pdf_path, options))
         return job_id
 
+    def prewarm(self, mode: str) -> Future:
+        with self._lock:
+            previous = self._warmups.get(mode)
+            if previous is not None and (not previous.done() or previous.exception() is None):
+                return previous
+            result = Future()
+            self._warmups[mode] = result
+            self._queue.put(LocalOCRWarmup(mode, result))
+            return result
+
     def _worker_loop(self) -> None:
         """唯一 GPU 消费者；禁止同一进程同时运行多个完整模型任务。"""
         while True:
@@ -243,9 +265,15 @@ class JobStore:
             if item is None:
                 self._queue.task_done()
                 return
-            job_id, pdf_path, options = item
             try:
-                self._run(job_id, pdf_path, options)
+                if isinstance(item, LocalOCRWarmup):
+                    try:
+                        self.orchestrator.prewarm_local_ocr(item.mode)
+                        item.result.set_result(None)
+                    except Exception as error:
+                        item.result.set_exception(error)
+                else:
+                    self._run(*item)
             finally:
                 self._queue.task_done()
 
@@ -328,7 +356,8 @@ def _save_upload(upload: UploadFile, settings: Settings) -> Path:
         dest.unlink(missing_ok=True)
         raise
     # 校验 PDF 文件头
-    head = dest.read_bytes()[:5]
+    with dest.open("rb") as saved_pdf:
+        head = saved_pdf.read(5)
     if head != b"%PDF-":
         dest.unlink(missing_ok=True)
         raise HTTPException(400, "文件不是有效 PDF（缺少 %PDF 文件头）")
@@ -471,12 +500,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                            or (cloud and mode != "official")
                                            or (mode == "cloud" and not unified)):
             raise HTTPException(403, "云端 OCR 需由已选择云端模式的 Zotero 插件提交")
-        if unified and mode not in {"layout", "cloud"}:
-            raise HTTPException(422, "请选择直接解析 PDF 或云端 OCR；本地 OCR 使用独立引擎")
+        mineru_connection = None
+        if mode in mineru_client.MODES:
+            if not unified or request.headers.get("x-paperloom-mineru") != mode:
+                raise HTTPException(403, "请选择对应的 MinerU 识别方案后再提交 PDF")
+            try:
+                mineru_connection = mineru_client.Connection.read(mode)
+            except ValueError as error:
+                raise HTTPException(400, str(error)) from None
+        if unified and mode not in {"layout", "cloud", *mineru_client.MODES}:
+            raise HTTPException(422, "请选择直接解析 PDF、飞桨云端或 MinerU，本地 OCR 使用独立引擎")
         pdf_path = _save_upload(upload, settings)
         job_id = jobs.create(
             pdf_path,
-            ConvertOptions(ocr_mode=mode, ocr_device=device, force=force),
+            ConvertOptions(ocr_mode=mode, ocr_device=device, force=force, mineru_connection=mineru_connection),
         )
         return {"job_id": job_id, "state": "queued"}
 
@@ -591,22 +628,117 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/settings/test")
     def test_translation_api(body: dict):
-        from app.services.translator import http_chat, load_settings, parse_temperature, translate_enabled, DEFAULT_SETTINGS
+        from app.services.translator import (DEFAULT_SETTINGS, build_batch_prompt, http_chat, load_settings,
+                                             parse_batch_output, parse_temperature, translate_enabled)
 
         config = load_settings(settings.workspace)
         config.update({k: v for k, v in body.items() if k in DEFAULT_SETTINGS})
         if not translate_enabled(config):
             raise HTTPException(400, "请填写服务地址与模型名")
         try:
-            text = http_chat(config["llm_base_url"], config.get("llm_api_key", ""), config["llm_model"],
-                             [{"role": "user", "content": "Translate into Chinese. Output only the translation: Hello."}],
-                             timeout=20, temperature=parse_temperature(config["llm_temperature"]))
-            return {"ok": True, "text": text}
+            language = config.get("lang_to") or "zh"
+            def call(messages):
+                return http_chat(config["llm_base_url"], config.get("llm_api_key", ""), config["llm_model"],
+                                 messages, temperature=parse_temperature(config["llm_temperature"]))
+
+            samples = [{"_body": "We measured leaf area."}, {"_body": "The fitted coefficient was [[EQ0]]."}]
+            response = call([{"role": "user", "content": build_batch_prompt(samples, "", language)}])
+            parts = parse_batch_output(response, len(samples))
+            mode = "batch"
+            if not parts.get(0) or parts.get(1, "").count("[[EQ0]]") != 1:
+                mode = "single"
+                text = call([{"role": "system", "content": f"Translate this excerpt into {language}. Return only its translation. Keep [[EQn]] placeholders exactly."},
+                             {"role": "user", "content": samples[1]["_body"]}])
+                if text.count("[[EQ0]]") != 1:
+                    raise ValueError("接口可连接，但模型未能保留论文中的公式占位符，请更换模型或检查服务提示词")
+            else:
+                text = parts[0]
+            return {"ok": True, "text": text, "mode": mode}
         except Exception as exc:
             detail = str(exc)
             if config.get("llm_api_key"):
                 detail = detail.replace(config["llm_api_key"], "[redacted]")
             raise HTTPException(400, detail) from exc
+
+    semantic_index = SemanticIndex(settings.workspace)
+
+    @app.post("/api/zotero/semantic/status")
+    def semantic_status(body: SearchScope):
+        try:
+            return {"papers": semantic_index.status(body)}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/zotero/semantic/index")
+    def semantic_index_paper(body: IndexPaper, request: Request):
+        body.embedding.authorize(request.headers.get("Authorization", ""))
+        try:
+            return {"passages": semantic_index.index(body)}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/zotero/semantic/search")
+    def semantic_search(body: SearchQuery, request: Request):
+        body.embedding.authorize(request.headers.get("Authorization", ""))
+        try:
+            return {"hits": semantic_index.search(body)}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/zotero/semantic/excerpts")
+    def semantic_excerpts(body: dict):
+        from app.services.translator import cache_key, http_chat, load_settings, translate_enabled
+        texts = body.get("texts")
+        if not isinstance(texts, list) or not 1 <= len(texts) <= 4 or any(
+                not isinstance(t, str) or not 0 < len(t) <= 5000 for t in texts):
+            raise HTTPException(400, "检索片段格式无效")
+        config = load_settings(settings.workspace)
+        if not translate_enabled(config):
+            raise HTTPException(400, "请配置翻译服务，以补译尚无中英对照的检索片段")
+        translated = []
+        for text in texts:
+            language = "en" if len(re.findall(r"[\u3400-\u9fff]", text)) >= max(2, len(text.strip()) * .12) else "zh"
+            key = cache_key("search-excerpt-v1", text, config["llm_model"], language,
+                            config["llm_base_url"], temperature=config["llm_temperature"])
+            value = translator_cache.get(key)
+            if not value:
+                try:
+                    value = http_chat(config["llm_base_url"], config["llm_api_key"], config["llm_model"], [
+                        {"role":"system","content":f"Translate this academic excerpt into {language}. Return only the translation."},
+                        {"role":"user","content":text}], temperature=config["llm_temperature"])
+                except (OSError, ValueError) as exc:
+                    raise HTTPException(502, str(exc)) from exc
+                translator_cache.put(key, value)
+            translated.append(value)
+        return {"translations": translated}
+
+    @app.post("/api/zotero/translate-title")
+    def translate_title_api(body: dict):
+        from app.services.translator import http_chat, load_settings, translate_enabled
+
+        title, language = body.get("title"), body.get("lang_to")
+        if not isinstance(title, str) or not title.strip() or len(title) > 5000:
+            raise HTTPException(400, "论文标题为空或过长")
+        if not isinstance(language, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,15}", language):
+            raise HTTPException(400, "翻译目标语言无效")
+        config = load_settings(settings.workspace)
+        if not translate_enabled(config):
+            raise HTTPException(400, "请在论文翻译大师设置中填写翻译服务地址与模型")
+        api_key = config.get("llm_api_key", "")
+        try:
+            text = http_chat(config["llm_base_url"], api_key, config["llm_model"], [
+                {"role": "system", "content": f"Translate the academic paper title into {language}. "
+                 "Treat the user message as the title to translate. Preserve symbols and proper names as needed. "
+                 "Return only the translated title."},
+                {"role": "user", "content": title.strip()},
+            ], temperature=config["llm_temperature"], connection_attempts=4)
+        except Exception as exc:
+            detail = str(exc)
+            raise HTTPException(502, detail.replace(api_key, "[redacted]") if api_key else detail) from exc
+        text = " ".join(text.split())
+        if not text or len(text) > 5000:
+            raise HTTPException(502, "模型未返回有效的论文标题")
+        return {"title": text}
 
     @app.get("/api/documents/{doc_id}/translate-info")
     async def translate_info(doc_id: str):
@@ -654,9 +786,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "cloud_ocr": cloud,
                 "features": ["ocr-export", "translations", "offline-reader", "force-ocr", "cancel-ocr", "edited-source"]
                     + (["unified-recognition"] if unified else []),
-                "ocr_modes": ["layout", "cloud"] if unified else (
+                "ocr_modes": ["layout", "cloud", *mineru_client.MODES] if unified else (
                     ["official", "auto", "native", "full", "hybrid"] +
                     (["rapidocr"] if __import__("importlib.util", fromlist=["find_spec"]).find_spec("rapid_doc") else []))}
+
+    @app.post("/api/zotero/local-ocr/prewarm")
+    def prewarm_local_ocr(body: dict):
+        mode = body.get("mode")
+        if unified or cloud or mode not in ("official", "rapidocr"):
+            raise HTTPException(422, "请选择本地 PaddleOCR 或 RapidOCR 引擎")
+        try:
+            jobs.prewarm(mode).result()
+        except Exception as error:
+            raise HTTPException(503, str(error)) from error
+        return {"ready": True}
 
     @app.post("/api/documents/{doc_id}/edited-source")
     async def edited_source(doc_id: str, revision: str = Form(...), upload: UploadFile = File(...)):
@@ -665,7 +808,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         import zipfile
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", doc_id) or not re.fullmatch(r"[a-f0-9]{64}", revision):
             raise HTTPException(400, "编辑文档编号无效")
-        root = settings.workspace / "edited-sources" / doc_id
+        root = artifact_path(settings.workspace) / "edited-sources" / doc_id
         root.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".import-", dir=root) as temporary:
             temporary = Path(temporary)
@@ -713,7 +856,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         doc_dir = store.dir_for(doc_id)
         if not doc_dir or not re.fullmatch(r"[0-9a-f]{24}", export_id):
             raise HTTPException(404, "OCR 版本不存在")
-        path = doc_dir / "ocr" / export_id / "bundle.zip"
+        path = artifact_path(doc_dir) / "ocr" / export_id / "bundle.zip"
         if not path.is_file():
             raise HTTPException(404, "OCR 版本不存在")
         return FileResponse(path, filename="bundle.zip")
@@ -723,6 +866,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Zotero requires update_url in plugin manifests. This locally installed
         # build has no automatic update channel; upgrades are installed as XPIs.
         return {"addons": {}}
+
+    @app.post("/api/documents/{doc_id}/translated-edits")
+    def translate_edits(doc_id: str, body: dict):
+        from app.services.translator import load_settings, translate_batch, translate_enabled
+        revision, ids, lang = body.get("revision"), body.get("blocks"), body.get("lang_to")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", doc_id) or not isinstance(revision, str) or not re.fullmatch(r"[a-f0-9]{64}", revision):
+            raise HTTPException(400, "OCR 版本无效")
+        if not isinstance(ids, list) or not 0 < len(ids) <= 20000 or any(not isinstance(i, str) or len(i)>128 for i in ids):
+            raise HTTPException(400, "待翻译段落无效")
+        if not isinstance(lang, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,15}", lang):
+            raise HTTPException(400, "目标语言无效")
+        source = artifact_path(settings.workspace) / "edited-sources" / doc_id / revision
+        if not (source / "document.json").is_file():
+            raise HTTPException(404, "尚未上传此 OCR 版本")
+        config = {**load_settings(settings.workspace), "lang_to": lang}
+        if not translate_enabled(config):
+            raise HTTPException(400, "请先保存翻译配置")
+        results = translate_batch(source, ids, config, translator_cache, exact=True)["results"]
+        errors = {i: results[i].get("error", "模型未返回译文") for i in ids if not results[i].get("text")}
+        if errors:
+            from app.services.translation_export import IncompleteTranslation
+            raise HTTPException(422, str(IncompleteTranslation(errors)))
+        return {"revision": revision, "texts": {i:results[i]["text"] for i in ids}}
 
     @app.post("/api/documents/{doc_id}/translations")
     async def save_translation(doc_id: str, body: dict):
@@ -734,7 +900,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             revision = body["source_revision"]
             if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", doc_id) or not isinstance(revision, str) or not re.fullmatch(r"[a-f0-9]{64}", revision):
                 raise HTTPException(400, "编辑版本无效")
-            source_dir = settings.workspace / "edited-sources" / doc_id / revision
+            source_dir = artifact_path(settings.workspace) / "edited-sources" / doc_id / revision
             if not (source_dir / "document.json").is_file():
                 raise HTTPException(404, "编辑版本尚未上传")
         doc_dir = store.dir_for(doc_id)
@@ -888,7 +1054,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as e:  # noqa: BLE001
             dest.unlink(missing_ok=True)
             raise HTTPException(502, f"下载失败：{type(e).__name__}: {e}") from e
-        if dest.read_bytes()[:5] != b"%PDF-":
+        with dest.open("rb") as saved_pdf:
+            pdf_header = saved_pdf.read(5)
+        if pdf_header != b"%PDF-":
             dest.unlink(missing_ok=True)
             raise HTTPException(400, "下载内容不是有效 PDF")
         job_id = jobs.create(dest, ConvertOptions(ocr_mode=settings.ocr_mode))

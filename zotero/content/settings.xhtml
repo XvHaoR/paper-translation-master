@@ -21,13 +21,14 @@
           <h:div class="row"><h:button id="testModel">测试连接</h:button><h:button id="loadModel">重新读取配置</h:button></h:div>
         </h:div>
         <h:details class="form-section"><h:summary>高级选项</h:summary><h:div class="details-body">
+          <h:label class="field">翻译并发数<h:input id="llm_concurrency" type="number" min="1" max="16" step="1" value="3"/></h:label>
           <h:label class="field">采样温度<h:input id="llm_temperature" inputmode="decimal" placeholder="留空使用模型默认值"/></h:label>
           <h:label class="checkline"><h:input id="clearKey" type="checkbox"/>保存时清除翻译密钥</h:label>
         </h:div></h:details>
       </h:section>
       <h:section id="panel-process" role="tabpanel" aria-labelledby="tab-process" class="settings-panel" hidden="hidden">
         <h:div class="form-section"><h:h2>识别与翻译</h:h2>
-          <h:label class="field" id="recognitionRow">默认识别方案<h:select id="recognitionMode"><h:option value="layout">直接解析 PDF</h:option><h:option value="local">本地 OCR</h:option><h:option value="cloud">云端 OCR</h:option></h:select></h:label>
+          <h:label class="field" id="recognitionRow">默认识别方案<h:select id="recognitionMode"></h:select></h:label>
           <h:label class="field">译文目标语言<h:input id="language" value="zh" list="lang-options" placeholder="zh / en / zh-TW"/></h:label>
           <h:datalist id="lang-options"><h:option value="zh" label="中文"/><h:option value="zh-TW" label="繁体中文"/><h:option value="en" label="英语"/></h:datalist>
           <h:label class="checkline"><h:input id="autoOCR" type="checkbox"/><h:span id="autoOCRLabel">新文献添加后自动识别</h:span></h:label>
@@ -35,6 +36,11 @@
         </h:div>
         <h:details id="localOptions" class="form-section"><h:summary>本地 OCR 引擎</h:summary><h:div class="details-body">
           <h:p id="localEngineHint" class="hint">可检测已安装的运行环境，也可指定本机引擎路径。</h:p>
+          <h:p id="localServiceHint" class="hint">处理文献时按需启动本地服务。</h:p>
+          <h:div id="localIdleSettings" hidden="hidden">
+            <h:label class="field">空闲释放（分钟）<h:input id="localIdleMinutes" type="number" min="1" max="120" step="1" value="5"/></h:label>
+            <h:p class="hint">最后一篇本地识别完成后开始计时，也可在工具栏手动关闭。</h:p>
+          </h:div>
           <h:label class="field" id="localEngineRow">本地引擎<h:select id="localEngine"><h:option value="auto">自动检测（GPU 优先）</h:option><h:option value="gpu">PaddleOCR-VL（GPU）</h:option><h:option value="cpu">RapidOCR（CPU）</h:option><h:option value="custom">自定义环境</h:option></h:select></h:label>
           <h:label class="field" id="localBackendRow">运行方式<h:select id="backend"><h:option value="wsl">WSL FastDeploy</h:option><h:option value="local">本机 Python OCR</h:option><h:option value="cloud">飞桨云端 OCR</h:option></h:select></h:label>
           <h:div class="field" id="localRootRow"><h:label for="projectRoot">项目目录</h:label><h:div class="row"><h:input id="projectRoot"/><h:button id="chooseRoot">浏览…</h:button></h:div></h:div>
@@ -43,6 +49,16 @@
           <h:div class="row"><h:button id="detectEngine">检测已安装引擎</h:button><h:button id="downloadEngine">下载安装器</h:button></h:div>
           <h:p id="engineStatus" class="hint" role="status"/>
         </h:div></h:details>
+        <h:details id="mineruSettings" class="form-section" hidden="hidden">
+      <h:summary>MinerU 识别设置</h:summary><h:div class="details-body">
+      <h:p class="hint">官方云端会将 PDF 提交到 MinerU。自部署模式会发送到下方指定的服务。</h:p>
+      <h:label class="field">官方 API Token<h:input id="mineruToken" type="password" autocomplete="off"/></h:label>
+      <h:div class="row"><h:button id="getMineruToken">申请官方 Token</h:button><h:label class="checkline"><h:input type="checkbox" id="clearMineruToken"/> 清除官方 Token</h:label></h:div>
+      <h:label class="field">自部署服务地址<h:input id="mineruServerURL" placeholder="http://127.0.0.1:8000"/></h:label>
+      <h:label class="field">自部署 API Key<h:input id="mineruServerToken" type="password" autocomplete="off"/></h:label>
+      <h:label class="checkline"><h:input type="checkbox" id="clearMineruServerToken"/> 清除自部署密钥</h:label>
+      <h:p class="hint">填写自部署服务根地址，支持 Tasks v1 和提供 /file_parse 的旧版服务。无鉴权时密钥可留空。</h:p>
+    </h:div></h:details>
         <h:details id="cloudOptions" class="form-section"><h:summary>飞桨云端 OCR</h:summary><h:div class="details-body">
           <h:p class="hint">云端识别会将选中的 PDF 上传至飞桨 AI Studio。</h:p>
           <h:label class="field">Access Token<h:input id="cloudToken" type="password" autocomplete="off" placeholder="留空保留已保存的密钥"/></h:label>

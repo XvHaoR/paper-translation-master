@@ -4,14 +4,16 @@
   const XHTML = "http://www.w3.org/1999/xhtml";
   PL.UI = {
     registerColumns() {
-      this.columns = ["ocr", "translate"].map(kind => Zotero.ItemTreeManager.registerColumn({
-        dataKey: kind === "ocr" ? "ocrStatus" : "translationStatus",
-        label: kind === "ocr" ? "OCR 状态" : "翻译状态", pluginID: PL.id,
+      this.columns = [
+        ["ocrStatus", "OCR 状态", "100", item => PL.Store.label(item, "ocr")],
+        ["translationStatus", "翻译状态", "100", item => PL.Store.label(item, "translate")],
+        ["translatedTitle", "翻译标题", "260", item => PL.TitleTranslations.column(item)],
+      ].map(([dataKey, label, width, dataProvider]) => Zotero.ItemTreeManager.registerColumn({
+        dataKey, label, pluginID: PL.id,
         // Zotero's item tree still uses defaultIn for initial visibility even
         // though the registration API marks it deprecated. Saved user choices win.
         enabledTreeIDs: ["main"], defaultIn: ["*"], showInColumnPicker: true, columnPickerSubMenu: false,
-        width: "100", flex: 0, minWidth: 75, zoteroPersist: ["width", "hidden", "sortDirection"],
-        dataProvider: item => PL.Store.label(item, kind),
+        width, flex: 0, minWidth: 75, zoteroPersist: ["width", "hidden", "sortDirection"], dataProvider,
       }));
     },
     addWindow(window) {
@@ -37,39 +39,47 @@
         root.setAttribute("label", PL.name || "论文翻译大师");
         const popup = doc.createXULElement("menupopup");
         root.append(popup);
-        menuitem(popup, PL.config.unified ? "识别选中文献…" : "OCR 选中文献…（打开论文列表勾选）", () => PL.BatchPicker.open(window, "ocr"));
-        menuitem(popup, "强制重新识别…", () => PL.BatchPicker.open(window, "force-ocr"));
-        if (PL.config.unified && !options) {
-          const actions = doc.createXULElement("menu");
-          actions.setAttribute("label", "使用指定方案识别");
-          const choices = doc.createXULElement("menupopup");
-          for (const [mode, label] of Object.entries(PL.Recognition.labels))
-            menuitem(choices, label, () => PL.Tasks.selected(window, "ocr", mode));
-          actions.append(choices);
-          popup.append(actions);
-        }
+        menuitem(popup, "OCR 当前论文", () => PL.Tasks.selected(window, "ocr"));
+        menuitem(popup, "翻译当前论文（含标题）", () => PL.Tasks.selected(window, "translate"));
+        menuitem(popup, "OCR 并翻译当前论文（含标题）", () => PL.Tasks.selected(window, "ocr-translate"));
+        menuitem(popup, "仅翻译当前标题", () => PL.Tasks.selected(window, "translate-title"));
+        popup.append(doc.createXULElement("menuseparator"));
         menuitem(popup, "清除 OCR 结果（保留 PDF 和译文）", () => PL.Tasks.selected(window, "clear-ocr"));
-        menuitem(popup, "翻译选中文献…（打开论文列表勾选）", () => PL.BatchPicker.open(window, "translate"));
         menuitem(popup, "删除当前语言译文（保留 PDF 和 OCR）", () => PL.Tasks.selected(window, "clear-translation"));
         menuitem(popup, "查看 OCR 版本", () => PL.Tasks.selected(window, "open-ocr"));
         menuitem(popup, "查看已保存译文", () => PL.Tasks.selected(window, "open-translation"));
         if (options) {
           popup.append(doc.createXULElement("menuseparator"));
+          menuitem(popup, "批量 OCR…", () => PL.BatchPicker.open(window, "ocr"));
+          menuitem(popup, "批量翻译…", () => PL.BatchPicker.open(window, "translate"));
           const automatic = menuitem(popup, "新文献添加后自动 OCR", () => {
             PL.setPref(PL.Tasks.autoPref(), !PL.pref(PL.Tasks.autoPref(), false));
             automatic.setAttribute("checked", String(PL.pref(PL.Tasks.autoPref(), false)));
           }, { type: "checkbox", checked: String(PL.pref(PL.Tasks.autoPref(), false)), autocheck: "false" });
           popup.addEventListener("popupshowing", () => {
             automatic.setAttribute("checked", String(PL.pref(PL.Tasks.autoPref(), false)));
-            const cloud = ["cloudAutoOCR", "unifiedAutoCloud"].includes(PL.Tasks.autoPref());
-            automatic.setAttribute("label", cloud ? "新文献自动上传飞桨进行 OCR" : "新文献添加后自动识别");
+            const target = PL.config.unified ? PL.Recognition.destination(PL.Recognition.defaultMode())
+              : PL.Tasks.autoPref() === "cloudAutoOCR" ? "飞桨云端" : null;
+            automatic.setAttribute("label", target ? `新文献自动提交到${target}识别` : "新文献添加后自动识别");
           });
-          menuitem(popup, "启动识别服务", () => PL.Recognition.service(PL.config.unified ? PL.Recognition.defaultMode() : null).ensure());
-          menuitem(popup, "停止插件启动的服务", async () => {
-            if (PL.Tasks.pending.size) throw new Error("请等待正在处理的文献完成");
-            for (const service of [PL.Service, PL.LocalOCR]) if (service.instance) await service.stop();
-          });
+          if (PL.config.unified) {
+            const localControl = menuitem(popup, "预热本地 OCR", () => PL.LocalOCRControl.toggle(window));
+            localControl.id = "paperloom-local-ocr-control";
+            localControl.hidden = PL.Recognition.defaultMode() !== "local";
+            popup.addEventListener("popupshowing", () => {
+              localControl.hidden = PL.Recognition.defaultMode() !== "local";
+              if (localControl.hidden) return;
+              const [label, hint, disabled] = PL.LocalOCRControl.status();
+              localControl.setAttribute("label", label);
+              localControl.setAttribute("tooltiptext", hint);
+              localControl.disabled = !!disabled;
+            });
+          } else {
+            menuitem(popup, "启动识别服务", () => PL.Service.ensure());
+            menuitem(popup, "停止插件启动的服务", () => PL.Service.stop());
+          }
           menuitem(popup, "设置…", () => this.settings(window));
+          if (PL.config.semanticSearch) menuitem(popup, "按内容找论文…", () => PL.SemanticSearch.open(window));
         }
         parent.append(root);
         nodes.push(root);
@@ -84,11 +94,14 @@
       if (itemsToolbar) {
         const batchGroup = doc.createElementNS(XHTML, "div");
         batchGroup.id = "paperloom-batch-toolbar";
-        for (const [kind,label] of [["ocr",PL.config.unified ? "批量识别" : "批量 OCR"],["translate","批量翻译"]]) {
+        const actions = [["ocr",PL.config.unified ? "批量识别" : "批量 OCR"],["translate","批量翻译"]];
+        if (PL.config.semanticSearch) actions.unshift(["semantic", "按内容找论文"]);
+        for (const [kind,label] of actions) {
           const button = doc.createElementNS(XHTML,"button");
           button.id = `paperloom-batch-${kind}`; button.textContent = label;
-          button.title = "打开论文列表，勾选要处理的论文后再开始；不会立即执行任务";
-          button.addEventListener("click", PL.run(window,()=>PL.BatchPicker.open(window,kind)));
+          button.title = kind === "semantic" ? "搜索论文标题、摘要和已保存的识别段落" : "打开论文列表，勾选要处理的论文后再开始；不会立即执行任务";
+          button.addEventListener("click", PL.run(window, () =>
+            kind === "semantic" ? PL.SemanticSearch.open(window) : PL.BatchPicker.open(window, kind)));
           batchGroup.append(button);
         }
         itemsToolbar.append(batchGroup); nodes.push(batchGroup);
@@ -101,7 +114,8 @@
         button.id = "paperloom-start-service";
         // Startup errors are shown beside this button; a modal would block the
         // repaint that hides the progress bar and obscure the retry action.
-        button.addEventListener("click", () => this.recognitionService().ensure().catch(error => Zotero.logError(error)));
+        button.addEventListener("click", () => (PL.config.unified ? PL.LocalOCRControl.toggle(window) :
+          this.recognitionService().ensure()).catch(error => Zotero.logError(error)));
         const label = doc.createElementNS(XHTML, "span");
         label.id = "paperloom-startup-label";
         label.setAttribute("aria-live", "polite");
@@ -124,42 +138,54 @@
       return PL.config?.unified ? PL.Recognition.service(PL.Recognition.defaultMode()) : PL.Service;
     },
     refreshService() {
-      const state = this.recognitionService().state;
-      const loading = ["checking", "checking_ocr", "starting_ocr", "loading_model", "starting_api", "stopping"].includes(state.phase);
+      const unified = PL.config?.unified;
+      const state = (unified ? PL.LocalOCR : this.recognitionService()).state;
+      const loading = ["checking", "checking_ocr", "starting_ocr", "loading_model", "starting_api", "stopping"].includes(state.phase)
+        || (unified && !!PL.LocalOCRControl?.warming);
       for (const window of PL.windows.keys()) {
         const doc = window.document;
         const button = doc.getElementById("paperloom-start-service");
+        const localMenu = doc.getElementById("paperloom-local-ocr-control");
+        if (localMenu) localMenu.hidden = PL.Recognition.defaultMode() !== "local";
         const progress = doc.getElementById("paperloom-startup-progress");
         const label = doc.getElementById("paperloom-startup-label");
         if (!button) continue;
-        const labelText = PL.config?.unified ? PL.Recognition.label(PL.Recognition.defaultMode()) : "OCR";
-        button.textContent = state.phase === "ready" ? `${labelText}已就绪` : state.phase === "failed" ? "重试启动" : `启动${labelText}`;
-        button.disabled = loading;
+        button.hidden = !!unified && PL.Recognition.defaultMode() !== "local";
+        if (button.hidden) {
+          label.hidden = true;
+          progress.hidden = true;
+          continue;
+        }
+        const [text, hint, disabled] = unified ? PL.LocalOCRControl.status() :
+          [state.phase === "ready" ? "OCR已就绪" : state.phase === "failed" ? "重试启动" : "启动OCR", state.message, loading];
+        button.textContent = text;
+        button.disabled = !!disabled;
+        button.title = hint;
         button.dataset.phase = state.phase;
-        button.title = state.message;
         progress.hidden = !loading;
         // Loading a model has no honest percentage; indeterminate progress is
         // deliberate and the label reports the actual stage from the launcher.
         progress.removeAttribute("value");
         label.hidden = !loading && state.phase !== "failed";
-        label.textContent = state.message;
-        label.title = state.message;
+        label.textContent = hint;
+        label.title = hint;
       }
     },
     refreshTasks() {
       const task = PL.Tasks.active;
       const running = PL.Tasks.running || (task ? [task] : []);
       const batch = task ? task.batch : [...PL.Tasks.batches.values()].find(batch=>!batch.finished) || PL.Tasks.lastBatch;
+      const taskLabel = kind => ({ocr: "OCR", title: "标题翻译", translate: "翻译"})[kind];
       for (const window of PL.windows.keys()) {
         const node = window.document.getElementById("paperloom-task-status");
         if (!node) continue;
         node.hidden = !task && !PL.Tasks.queue.length && !batch;
-        const progress = batch ? `批量 ${batch.kind === "ocr" ? "OCR" : "翻译"} ${batch.done}/${batch.total}` : "";
-        node.textContent = task ? `${progress || (task.kind === "ocr" ? "OCR" : "翻译")} · ${task.message || "处理中…"}${PL.Tasks.queue.length ? ` · 等待 ${PL.Tasks.queue.length} 篇` : ""}`
+        const progress = batch ? `批量 ${taskLabel(batch.kind)} ${batch.done}/${batch.total}` : "";
+        node.textContent = task ? `${progress || taskLabel(task.kind)} · ${task.message || "处理中…"}${PL.Tasks.queue.length ? ` · 等待 ${PL.Tasks.queue.length} 篇` : ""}`
           : batch ? `${progress} · ${batch.finished ? "完成" : "等待处理"} · 成功 ${batch.success}${batch.failed ? ` · 失败 ${batch.failed}` : ""}${batch.skipped ? ` · 跳过 ${batch.skipped}` : ""}` : "";
         if (running.length > 1) node.textContent = running.map(task => {
           const batch = task.batch;
-          const label = task.kind === "ocr" ? "OCR" : "翻译";
+          const label = taskLabel(task.kind);
           return `${batch ? `批量 ${label} ${batch.done}/${batch.total}` : label} · ${task.message || "处理中…"}`;
         }).join(" ｜ ") + (PL.Tasks.queue.length ? ` · 等待 ${PL.Tasks.queue.length} 篇` : "");
         node.title = [node.textContent,...running.map(task => task.source.getField("title"))].filter(Boolean).join("\n");
@@ -176,23 +202,29 @@
     },
     async applyLocal(values) {
       if (PL.Tasks.active || PL.Tasks.queue.length) throw new Error("请等当前文献处理完成后再修改设置");
+      if ("localOCRIdleMinutes" in values && (!Number.isInteger(values.localOCRIdleMinutes) ||
+          values.localOCRIdleMinutes < 1 || values.localOCRIdleMinutes > 120)) throw new Error("空闲释放时间请填写 1 至 120 的整数分钟");
       if (PL.config.cloudPreview || (PL.config.localHTMLPreview && PL.config.localRuntimeDescriptor)) {
         values = Object.fromEntries(Object.entries(values).filter(([key]) => !["projectRoot","pythonPath","backend"].includes(key)));
       }
       const engine = { serviceURL: PL.serviceURL(), projectRoot: PL.pref("projectRoot", PL.config.projectRoot),
         pythonPath: PL.pref("pythonPath", ""), backend: PL.pref("backend", PL.config.defaultBackend) };
       const restart = Object.keys(engine).some(key => key in values && values[key] !== engine[key]);
-      const restartLocal = PL.config.unified && Object.keys(values)
-        .some(key => key.startsWith("unifiedLocal") && values[key] !== PL.pref(key, undefined));
+      const localDefaults = {unifiedLocalEngine:"auto", unifiedLocalBackend:"local",
+        unifiedLocalPython:"", unifiedLocalRoot:"", unifiedLocalURL:"http://127.0.0.1:8765"};
+      const restartLocal = PL.config.unified && Object.entries(localDefaults)
+        .some(([key, fallback]) => key in values && values[key] !== PL.pref(key, fallback));
+      const leaveLocal = PL.config.unified && PL.Recognition.defaultMode() === "local" &&
+        "recognitionMode" in values && values.recognitionMode !== "local";
       const previous = Object.fromEntries(Object.keys(values).map(key => [key, PL.pref(key, undefined)]));
       try {
         for (const [key, value] of Object.entries(values)) PL.setPref(key, value);
         PL.serviceURL();
         PL.language();
         if (PL.config.unified) PL.LocalOCR.configuredURL();
-        if (restartLocal) {
-          if (PL.LocalOCR.starting) await PL.LocalOCR.starting.catch(() => {});
-          if (PL.LocalOCR.instance) await PL.LocalOCR.stop();
+        if (restartLocal || leaveLocal) {
+          if (PL.LocalOCR.instance || PL.LocalOCR.readyURL || PL.LocalOCR.starting || PL.LocalOCRControl?.warming)
+            await PL.LocalOCRControl.stop();
           PL.LocalOCR.readyURL = null;
           PL.LocalOCR.runtime = null;
         }
@@ -206,6 +238,8 @@
         throw error;
       }
       PL.Store.refresh();
+      if ("localOCRIdleMinutes" in values && previous.localOCRIdleMinutes !== values.localOCRIdleMinutes &&
+          PL.LocalOCRControl?.deadline) PL.LocalOCRControl.schedule();
       this.refreshService();
     },
     removeWindow(window) {

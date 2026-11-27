@@ -15,7 +15,11 @@ export class PaperLoomReaderChild extends JSWindowActorChild {
       if (this.document.body) this.document.body.dataset.actionReceived = "true";
       let data;
       const document = this.document;
-      try { data = JSON.parse(event.detail); actionPayload(data); }
+      try {
+        data = JSON.parse(event.detail);
+        actionPayload(data);
+        if (data.type.startsWith("annotation-")) throw new Error("请使用划词批注工具");
+      }
       catch (error) { this.result({ id: data?.id, error: error.message }, document); return; }
       if (data.type === "locate" && data.revealPDF === undefined) {
         data.revealPDF = this.explicitLocate === true;
@@ -52,6 +56,8 @@ export class PaperLoomReaderChild extends JSWindowActorChild {
         this.bridgeState("ready");
         // Appearance is optional; an invalid style must not disable actions.
         try { this.applyView(config.view || {}); this.applyStyle(config.css || ""); }
+        catch (error) { this.report(error); }
+        try { this.interactions?.annotations.paint(config.annotations || []); }
         catch (error) { this.report(error); }
         return config;
       } catch (error) {
@@ -191,6 +197,7 @@ export class PaperLoomReaderChild extends JSWindowActorChild {
       return Array.from(this.document.querySelectorAll(".pl-target table")).map((table,index)=>({name:`表${index+1}`,rows:excel.tableRows(table)}));
     }
     if (message.name === "highlight-translation") return this.reverseHighlight?.receive(message.data) || false;
+    if (message.name === "annotation-marks") { this.interactions?.annotations.paint(message.data); return true; }
     if (message.name === "paper-export") return exportPage(this.document, message.data?.assets || "assets");
     if (message.name === "editor-command") {
       const editor = this.contentWindow.wrappedJSObject.PaperLoomEditor;
@@ -212,17 +219,20 @@ export class PaperLoomReaderChild extends JSWindowActorChild {
     });
     if (message.name === "sync-scroll-to") return this.interactions?.scrollTo(message.data) || false;
     if (message.name === "page-blocks") return Array.from(this.document.querySelectorAll('.pl-block'))
-      .map(node=>this.source(node)).filter(block=>block.page===message.data.page || block.regions?.some(region=>region.page===message.data.page));
+      .map(node=>this.source(node)).filter(block=>block.page===message.data.page || block.page===message.data.page-1 || block.regions?.some(region=>region.page===message.data.page));
     if (message.name === "select-block" || message.name === "locate-point") {
       const candidates = Array.from(this.document.querySelectorAll(".pl-block"));
-      const node = message.name === "select-block" ? candidates.find(node => node.dataset.blockId === message.data.id) : candidates.filter(node => {
-        const block=this.source(node), regions=block.regions?.length ? block.regions : [{page:block.page,bbox:block.bbox}];
-        return regions.some(({page,bbox:box})=>Number(page)===Number(message.data.page) && box?.length===4
-          && message.data.x>=box[0] && message.data.x<=box[2] && message.data.y>=box[1] && message.data.y<=box[3]);
-      }).sort((a,b)=>{
-        const area = node => { const box=JSON.parse(node.dataset.bbox); return (box[2]-box[0])*(box[3]-box[1]); };
-        return area(a)-area(b);
-      })[0];
+      const {page, x, y} = message.data;
+      const node = message.name === "select-block" ? candidates.find(node => node.dataset.blockId === message.data.id) :
+        candidates.flatMap(node => {
+          const block = this.source(node);
+          const regions = block.regions?.length ? block.regions : [{page:block.page,bbox:block.bbox}];
+          return regions.filter(region => {
+            const box = region.bbox;
+            return Number(region.page) === Number(page) && box?.length === 4 &&
+              x >= box[0] && x <= box[2] && y >= box[1] && y <= box[3];
+          }).map(({bbox:b}) => ({node, area:(b[2]-b[0])*(b[3]-b[1])}));
+        }).sort((a,b) => a.area-b.area)[0]?.node;
       if (!node) return false;
       this.document.querySelectorAll(".pl-block.selected").forEach(node => node.classList.remove("selected"));
       node.classList.add("selected"); this.document.body.classList.add("has-selection");

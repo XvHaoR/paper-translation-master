@@ -85,3 +85,7 @@ Microsoft 运行库不是本项目的 AGPL 代码。其接收方条款保存在 
 ## 升级与再分发
 
 再分发源码、XPI、安装器或包含第三方程序的离线阅读包时，请保留适用的 LICENSE、版权与第三方声明。修改第三方文件时，另行标明修改。项目名称、作者及上游名称只用于来源说明，不表示 Zotero、PaddlePaddle、MathJax、Artifex、Python 或其他上游为本项目背书。
+
+## Multilingual E5 Small
+
+The Windows and macOS reading bundles include Microsoft's MIT-licensed multilingual E5 Small model. The quantized ONNX conversion is pinned to revision `761b726dd34fb83930e26aab4e9ac3899aa1fa78`. [Original model](https://huggingface.co/intfloat/multilingual-e5-small) · [ONNX conversion](https://huggingface.co/Xenova/multilingual-e5-small) · [License](licenses/multilingual-e5-small-LICENSE.txt)

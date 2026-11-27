@@ -1,50 +1,51 @@
-# 论文翻译大师
+# 论文翻译大师 · Paper Translation Master
 
-在 Zotero 中识别 PDF、对照原文阅读、编辑识别结果，并按需使用大模型翻译。识别结果和译文保存为 Zotero 附件，可离线打开。
+简体中文 · [English](docs/languages/en.md) · [日本語](docs/languages/ja.md) · [Español](docs/languages/es.md) · [Français](docs/languages/fr.md) · [Deutsch](docs/languages/de.md)
 
-**0.7.1.3** 更新了原文、对照和解析视图。批量翻译时可以选择「最近添加优先」，再按「待处理」或「失败可重试」筛选文献。设置分为「翻译服务」「文献处理」「阅读外观」。[更新记录](CHANGELOG.md)
+在 Zotero 里并排读论文原文和译文。选中段落可以回到 PDF，发现图注错位可以移回图下，记不清论文标题时可以用中文描述找回读过的段落。识别结果与译文保存为 Zotero 附件，下次打开可直接阅读。
 
-[下载已发布的安装包和校验值](https://github.com/XvHaoR/paper-translation-master/releases) · [完整安装说明](docs/UNIFIED_EDITION.md)
+**当前推荐版本为 0.8.2。** Windows 和 Apple 芯片 Mac 使用同一套阅读、批注、编辑和检索功能。升级时请同时安装对应平台的运行环境和包内 XPI。
 
-## 安装和升级
+| 平台 | 完整安装包 | 解压后运行 |
+| --- | --- | --- |
+| Windows 10／11 x64 | [下载 Windows 版](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.8.2/paper-translation-master-windows-x64-0.8.2.zip) | `Install.cmd` |
+| macOS 14 及以上，Apple 芯片（M 系列） | [下载 macOS 版](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.8.2/paper-translation-master-macos-arm64-0.8.2.zip) | `Install.command` |
 
-1. 关闭 Zotero，将完整 ZIP 解压到固定目录，运行 `Install.cmd` 注册运行环境。
-2. 在 Zotero「工具 → 插件 → 从文件安装」中选择解压目录里的 XPI，再重启 Zotero。
-3. 在「论文翻译大师 → 设置」选择识别方案。已有本地 OCR 的用户可以点击「检测已安装引擎」，选择「本地 OCR」并保存。
+支持 Zotero 7–10。关闭 Zotero，把 ZIP 解压到长期保留的目录，运行上表中的安装文件。重新打开 Zotero，在「工具 → 插件 → 齿轮 → 从文件安装」选择同目录的 XPI。[图文使用教程](docs/TUTORIAL.md) · [macOS 安装说明](docs/MACOS.md) · [发布说明和 SHA-256 校验值](https://github.com/XvHaoR/paper-translation-master/releases/tag/v0.8.2)
 
-融合版沿用旧插件 ID。已有 PDF、识别结果、译文和批注继续保留。首次启动会按来源整理可唯一匹配的旧独立结果，并留下原层级记录。初次切换融合版时，请安装完整包并核对翻译设置。[升级说明](docs/MIGRATION.md)
+![左侧为示例 PDF，右侧逐段显示识别原文和中文译文](docs/images/bilingual-reader.png)
 
-## 选择识别方案
+## 选择 PDF 处理方式
 
-| 方案 | 场景和要求 |
-| --- | --- |
-| **直接解析 PDF** | 默认方案，利用 PDF 的文字层和版面信息，无需 OCR 模型、独显或密钥。扫描页保留图像，换用 OCR 可识别图中的文字。 |
-| **本地 PaddleOCR-VL** | PDF 在本机处理。Windows 10 2004+／11 x64 一键安装方案要求 NVIDIA 显存至少 8 GB，推荐 12 GB，计算能力 CC 7.x–9.x、驱动至少 560.76，磁盘至少 15 GB，推荐 25 GB。已有 WSL FastDeploy 的用户也可复用环境。 |
-| **本地 RapidOCR** | CPU 运行，无需 NVIDIA、CUDA 或 WSL。建议至少 8 GB 内存和 5 GB 可用磁盘。 |
-| **云端 OCR** | 联网调用飞桨 PaddleOCR-VL-1.6，无需本机 OCR 模型和独显。仅在选择云端时上传所选 PDF，单篇上限 50 MB。自动上传须在云端模式单独启用。 |
+| 论文和设备 | 在设置中选择 | 准备工作 |
+| --- | --- | --- |
+| 能选中文字的 PDF | 直接解析 PDF | 完整包自带解析环境，离线可用 |
+| 扫描件，本机运行模型 | 本地 OCR | 连接已安装的 PaddleOCR 或 RapidOCR；也可配置兼容的本机服务 |
+| 扫描件，使用云端 | 飞桨云端 OCR 或 MinerU 官方云端 | 申请对应服务的令牌。识别时会上传选中的 PDF。[飞桨令牌](https://aistudio.baidu.com/account/accessToken) · [MinerU 令牌](https://mineru.net/apiManage/token) |
+| 自己运行了 MinerU | MinerU 自部署 | 填写服务地址，有鉴权时填写该服务的密钥 |
 
-已有 GPU 或 CPU 用户可以继续使用 [0.5.0 的 GPU 安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-setup-0.5.0.exe) 或 [CPU 安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-rapidocr-setup-0.5.0.exe) 部署引擎。融合版使用自己的 XPI。[完整本地部署](docs/INSTALLATION.md) · [RapidOCR 说明](docs/RAPIDOCR_EDITION.md)
+Windows 提供两种可选的本地引擎。PaddleOCR-VL GPU 安装器需要 NVIDIA 独显，至少 8 GB 显存，推荐 12 GB；RapidOCR 使用 CPU，建议至少 8 GB 内存和 5 GB 可用磁盘。Apple 芯片 Mac 可直接使用包内解析和离线检索，做本地 OCR 时需另接兼容的引擎或服务。[Windows GPU 安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-setup-0.5.0.exe) · [Windows CPU 安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-rapidocr-setup-0.5.0.exe) · [完整部署要求](docs/INSTALLATION.md)
 
-云端 OCR 用户在 [百度飞桨 AI Studio](https://aistudio.baidu.com/) 注册或登录，到 [Access Token 页面](https://aistudio.baidu.com/account/accessToken) 领取令牌，再填入插件「飞桨云端 OCR」设置。服务额度以 [PaddleOCR 控制台](https://aistudio.baidu.com/paddleocr) 为准。
+## 0.8.2 可以做什么
 
-## 阅读、编辑与翻译
+- **读与批注**。在同一标签页切换原 PDF、对照和解析视图。逐段双语或仅译文按论文保存。能定位的外文原文选区可写成 Zotero 原生 PDF 高亮和批注；译文选区的批注留在译文中。
+- **校正排版**。拖动识别块调整顺序，改正文、摘要、图注或表注的类型，删除多余子图。已有译文跟随顺序、删除和类别变化。改动文字后可以只补译受影响的段落。
+- **后台识别和翻译**。右键一篇文献可直接识别、翻译全文和标题，或连续执行两项。批量窗口可勾选多篇。翻译使用自己配置的兼容接口，Temperature 留空时使用模型默认值。
+- **按内容找论文**。识别后自动建索引。可以用中文输入记得的线索，查看候选论文、命中片段和原文位置。完整包附带多语种 CPU 检索模型，也支持嵌入 API。
+- **管理本地 OCR**。默认方案设为「本地 OCR」后，工具栏提供预热与关闭。最后一篇任务完成后默认空闲 5 分钟释放模型，等待时间可调。已有结果仍可阅读、翻译和导出。
+- **带走结果**。可导出 HTML、Markdown 和结构化 Excel 表格。识别为 LaTeX 的公式可以直接复制。
 
-- 使用 HTML 对照 PDF 原文，支持双向滚动、点击定位和高亮。图表、摘要及脚注有独立排版。
-- 可编辑识别文本和类别，删去多余图片，调整标题，或导出 HTML、Markdown 和 Excel。OCR 识别的公式可复制 LaTeX。
-- 批量识别与翻译后台运行。翻译支持逐段双语或仅译文，绑定实际使用的识别快照。
-- 在「翻译服务」中填写 OpenAI 兼容接口、模型和 API Key。Temperature 留空使用模型默认值。
+[分步图文教程](docs/TUTORIAL.md) · [识别方案与高级配置](docs/UNIFIED_EDITION.md) · [升级已有文库](docs/MIGRATION.md) · [更新记录](CHANGELOG.md)
 
-## 开发
+开发版的批量窗口支持按添加时间排序和按处理状态筛选。设置分为「翻译服务」「文献处理」「阅读外观」。[开发版更新记录](CHANGELOG.md#未发布)
 
-完整发布包面向 Windows x64。开发环境使用 Python 3.11+，测试包括 Python、Node.js 和隔离的 Zotero 配置。
+## 开发与许可
 
 ```bash
-python -m pip install -e ".[dev,layout]"
+python -m pip install -e ".[dev,layout,semantic]"
 npm ci --prefix tests/dom
 python -m pytest tests/unit tests/integration -q
 python packaging/build_release.py
 ```
 
-[构建和发布](docs/RELEASING.md) · [更新记录](CHANGELOG.md) · [历史 Releases](https://github.com/XvHaoR/paper-translation-master/releases)
-
-原创代码采用 [AGPL-3.0-or-later](LICENSE)。第三方组件的许可证见[第三方声明](THIRD_PARTY_NOTICES.md)。远程翻译会将待翻译的文本发送到用户配置的服务商。
+原创代码采用 AGPL-3.0-or-later。第三方模型及依赖使用各自的许可证。[构建与发布](docs/RELEASING.md) · [许可证](LICENSE) · [第三方声明](THIRD_PARTY_NOTICES.md)

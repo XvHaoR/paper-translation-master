@@ -11,6 +11,17 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 
 
+def artifact_path(path: Path) -> Path:
+    """Keep nested snapshot images and offline fonts accessible on Windows."""
+    path = path.resolve()
+    absolute = str(path)
+    if os.name != "nt" or absolute.startswith("\\\\?\\"):
+        return path
+    if absolute.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + absolute[2:])
+    return Path("\\\\?\\" + absolute)
+
+
 @dataclass
 class Settings:
     """应用配置。可通过环境变量 PAPERBRIDGE_* 覆盖。"""

@@ -3,14 +3,22 @@
   const PL = PaperLoom;
   PL.Runtime = {
     unifiedDirectory: "PaperTranslationMasterUnified",
+    isMac() { return Boolean(Zotero.isMac); },
     dataDirectory(name) {
       const base = Zotero.isWin ? Services.env.get("LOCALAPPDATA")
-        : Services.env.get("XDG_DATA_HOME") || PathUtils.join(Services.env.get("HOME"), ".local", "share");
+        : Services.env.get("XDG_DATA_HOME") || (Zotero.isMac
+          ? PathUtils.join(Services.env.get("HOME"), "Library", "Application Support")
+          : PathUtils.join(Services.env.get("HOME"), ".local", "share"));
       return PathUtils.join(base, name);
     },
     async named(name) {
       const path = PathUtils.join(this.dataDirectory(name), "runtime.json");
-      return await IOUtils.exists(path) ? this.descriptor(path) : null;
+      if (await IOUtils.exists(path)) return this.descriptor(path);
+      if (Zotero.isMac && !Services.env.get("XDG_DATA_HOME")) {
+        const legacy = PathUtils.join(Services.env.get("HOME"), ".local", "share", name, "runtime.json");
+        if (await IOUtils.exists(legacy)) return this.descriptor(legacy);
+      }
+      return null;
     },
     async descriptor(path) {
       const value = await IOUtils.readJSON(path);
@@ -43,7 +51,8 @@
     async resolve() {
       if (PL.config.unified) {
         const runtime = await this.named(this.unifiedDirectory);
-        if (!runtime || runtime.backend !== "local") throw new Error("请先运行融合版安装包中的 Install.cmd（源码安装使用 install.py）");
+        const installer = Zotero.isMac ? "Install.command" : "Install.cmd";
+        if (!runtime || runtime.backend !== "local") throw new Error(`请先运行融合版安装包中的 ${installer}（源码安装使用 install_unified.py）`);
         return {...runtime, pinned:true};
       }
       // Local test builds pin a complete code snapshot without changing the
@@ -81,11 +90,12 @@
       return null;
     },
     async localEngine(runtime) {
-      if (runtime.backend !== "wsl") return { ...runtime, pinned:true };
+      if (runtime.backend !== "wsl" && !runtime.descriptor) return { ...runtime, pinned:true };
       const unified = await this.resolve();
       // Keep the registered model environment and run the compatible service from this release.
       return { ...runtime, projectRoot:unified.projectRoot,
-        workspace:PathUtils.join(this.dataDirectory(this.unifiedDirectory), "local-wsl"), pinned:true };
+        workspace:runtime.backend === "wsl" ? PathUtils.join(this.dataDirectory(this.unifiedDirectory), "local-wsl")
+          : runtime.environment?.PAPERBRIDGE_WORKSPACE || PathUtils.join(runtime.projectRoot, "workspace"), pinned:true };
     },
     async localOCR(selected = PL.pref("unifiedLocalEngine", "auto")) {
       if (selected === "custom") {

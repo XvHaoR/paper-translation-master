@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import signal
 import socket
 import subprocess
 import sys
@@ -24,6 +25,8 @@ if __package__:
     from .runtime_config import runtime_environment
     from .wsl_model import WSLModel, StartupCancelled
 else:
+    # Windows embeddable Python's ._pth may point at an older engine checkout.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
     import launcher
     from ocr_health import probe_vlm
     from process_lifetime import WindowsJob, ParentProcess
@@ -74,7 +77,8 @@ def compatible_service(url: str, ocr_mode: str = "official", owner: str | None =
                     and bool(status.get("cloud_ocr")) == cloud
                     and (not status.get("managed_owner") or status["managed_owner"] == owner)
                     and (ocr_mode != "rapidocr" or "rapidocr" in status.get("ocr_modes", []))
-                    and (ocr_mode != "layout" or "unified-recognition" in status.get("features", []))
+                    and (ocr_mode != "layout" or ("unified-recognition" in status.get("features", [])
+                        and {"mineru", "mineru-local"}.issubset(status.get("ocr_modes", []))))
                     and {"force-ocr", "cancel-ocr", "edited-source"}.issubset(status.get("features", [])))
     except Exception:
         return False
@@ -93,6 +97,13 @@ def available_port(preferred: int) -> int:
                 if candidate == 0:
                     raise RuntimeError("无法分配本机服务端口，请检查网络设置")
     raise RuntimeError("无法分配本机服务端口")
+
+
+def signal_process_group(pid: int, sig: signal.Signals) -> None:
+    try:
+        os.killpg(pid, sig)
+    except ProcessLookupError:
+        pass
 
 
 def acquire_lock(root: Path, workspace: str | None = None):
@@ -135,6 +146,23 @@ def probe_warm_model(update) -> None:
             time.sleep(1)
 
 
+def bypass_loopback_proxy(environment, system_proxies=None):
+    # Windows Python uses either environment proxies or the registry. Adding
+    # only NO_PROXY would hide the registry proxies from external requests.
+    proxy_schemes = ("http", "https", "all")
+    explicit = any(environment.get(f"{scheme}_proxy") or environment.get(f"{scheme.upper()}_PROXY")
+                   for scheme in proxy_schemes)
+    if system_proxies and not explicit:
+        for scheme in proxy_schemes:
+            if system_proxies.get(scheme):
+                environment[f"{scheme.upper()}_PROXY"] = system_proxies[scheme]
+    existing = ",".join(environment.get(name, "") for name in ("NO_PROXY", "no_proxy"))
+    hosts = [host.strip() for host in existing.split(",") if host.strip()]
+    exclusions = ",".join(dict.fromkeys([*hosts, "localhost", "127.0.0.1", "::1"]))
+    environment["NO_PROXY"] = exclusions
+    environment["no_proxy"] = exclusions
+
+
 def run(args) -> int:
     root = Path(__file__).resolve().parents[1]
     state = Path(args.state_file).resolve()
@@ -163,13 +191,21 @@ def run(args) -> int:
                 return
             if job:
                 job.close()  # Also kills venv grandchildren and OCR subprocesses.
-            if process is not None and process.poll() is None:
-                process.terminate()
+            if process is not None:
+                if os.name != "nt":
+                    signal_process_group(process.pid, signal.SIGTERM)
+                elif process.poll() is None:
+                    process.terminate()
                 try:
                     process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    process.kill()
+                    if os.name != "nt":
+                        signal_process_group(process.pid, signal.SIGKILL)
+                    else:
+                        process.kill()
                     process.wait(timeout=5)
+                if os.name != "nt":
+                    signal_process_group(process.pid, signal.SIGKILL)
             if model is not None:
                 model.close()
             if owns_keepalive:
@@ -199,7 +235,7 @@ def run(args) -> int:
             return 0
         if getattr(args, "parent_pid", None):
             threading.Thread(target=watch_owner, name="zotero-owner-watch", daemon=True).start()
-        lock = acquire_lock(root, args.workspace) if args.backend == "wsl" else acquire_lock(root)
+        lock = acquire_lock(root, args.workspace) if args.workspace else acquire_lock(root)
         port = available_port(port)
         url = f"http://127.0.0.1:{port}"
         if port != args.port:
@@ -210,9 +246,16 @@ def run(args) -> int:
                          "PAPERBRIDGE_OFFICIAL_ACCELERATOR", "PAPERBRIDGE_OFFICIAL_WSL_URL"):
                 env.pop(name, None)
         env.update(runtime_environment(getattr(args, "runtime_config", None)))
+        if sys.platform == "darwin":
+            env["PYTHONNOUSERSITE"] = "1"
         env["PAPERBRIDGE_ZOTERO_OWNER"] = instance
+        if requested_mode != "layout":
+            env.pop("PAPERBRIDGE_UNIFIED", None)
         if requested_mode == "layout":
             env["PAPERBRIDGE_UNIFIED"] = "1"
+            mineru_config = getattr(args, "mineru_config", None)
+            if mineru_config:
+                env["PAPERBRIDGE_MINERU_CONFIG"] = str(Path(mineru_config).resolve())
             env["PAPERBRIDGE_OCR_MODE"] = "layout"
             env.pop("PAPERBRIDGE_OFFICIAL_ACCELERATOR", None)
             token_file = getattr(args, "cloud_token_file", None)
@@ -239,10 +282,8 @@ def run(args) -> int:
                 if cleaned or not lease_valid(lease, instance):
                     raise StartupCancelled("Zotero 已取消启动")
                 model = WSLModel()
+                owns_keepalive = launcher.ensure_wsl_keepalive(root)
             update("starting_ocr", "正在启动 WSL OCR 服务…")
-            keepalive_file = root / "scripts" / "wsl-keepalive.pid"
-            launcher.ensure_wsl_keepalive(root)
-            owns_keepalive = keepalive_file.exists()
             update("loading_model", "正在加载 OCR 模型，首次启动可能需要几分钟…")
             model.start(lambda: launcher.is_up(launcher.VLM_URL))
             update("checking_ocr", "正在检查 OCR 模型实际识别能力…")
@@ -263,16 +304,22 @@ def run(args) -> int:
         log_dir = root / "log"
         log_dir.mkdir(exist_ok=True)
         log_file = (log_dir / "paperloom-zotero.log").open("a", encoding="utf-8")
-        job = WindowsJob()
-        process = subprocess.Popen(
-            [sys.executable, "-X", "utf8", "-m", "app.cli", "serve", "--port", str(port)],
-            cwd=root, env=env, stdout=log_file, stderr=subprocess.STDOUT,
-            # Suspend before assignment so even a fast venv launcher cannot
-            # spawn an unowned grandchild between Popen and Job assignment.
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) | (0x4 if os.name == "nt" else 0),
-        )
-        job.assign(process)
-        job.resume(process)
+        with cleanup_lock:
+            if cleaned or not lease_valid(lease, instance):
+                raise StartupCancelled("Zotero 已取消启动")
+            if os.name == "nt":
+                job = WindowsJob()
+                # Suspend the venv launcher until it belongs to the Job Object.
+                options = {"creationflags": subprocess.CREATE_NO_WINDOW | 0x4}
+            else:
+                options = {"start_new_session": True}
+            process = subprocess.Popen(
+                [sys.executable, "-X", "utf8", str(root / "app" / "cli.py"), "serve", "--port", str(port)],
+                cwd=root, env=env, stdout=log_file, stderr=subprocess.STDOUT, **options,
+            )
+            if job:
+                job.assign(process)
+                job.resume(process)
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
             if process.poll() is not None:
@@ -321,10 +368,13 @@ if __name__ == "__main__":
     parser.add_argument("--backend", choices=["wsl", "local", "cloud"], default="wsl" if os.name == "nt" else "local")
     parser.add_argument("--workspace")
     parser.add_argument("--cloud-token-file")
+    parser.add_argument("--mineru-config")
     parser.add_argument("--runtime-config", help="Installer runtime descriptor")
     parser.add_argument("--ocr-mode", choices=["official", "rapidocr", "layout"], default="official")
     parser.add_argument("--parent-pid", type=int, help="Owning Zotero main process")
     arguments = parser.parse_args()
     if not 1 <= arguments.port <= 65535:
         parser.error("invalid port")
+    system_proxies = urllib.request.getproxies_registry() if os.name == "nt" else None
+    bypass_loopback_proxy(os.environ, system_proxies)
     sys.exit(run(arguments))

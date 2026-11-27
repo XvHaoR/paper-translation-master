@@ -11,17 +11,21 @@
       state.pdfDoc?.removeEventListener("pointerdown", state.pdfSelectionStart, true);
       state.pdfDoc?.removeEventListener("keydown", state.pdfSelectionStart, true);
       state.pdfDoc = doc;
-      state.pdfSelectionStart=event=>{ if(event.type!=="keydown" || event.key==="Escape")PL.ReverseSelection.clear(state); };
+      state.pdfSelectionStart = event => {
+        if (event.type === "pointerdown") state.pdfPointer = [event.clientX, event.clientY];
+        if (event.type !== "keydown" || event.key === "Escape") PL.ReverseSelection.clear(state);
+      };
       doc.addEventListener("pointerdown",state.pdfSelectionStart,true);
       doc.addEventListener("keydown",state.pdfSelectionStart,true);
       state.pdfClick = async event => {
         if (!PL.alive || state.mode !== "split" || !state.saved || state.pdfDoc !== doc
           || (event.button !== undefined && event.button !== 0)) return;
         const page = event.target.closest?.(".page");
-        if (!page || doc.defaultView.getSelection()?.isCollapsed === false) return;
-        const view=PL.PDFContext.current(state).view;
-        if(view?.getSelectionPosition?.() || view?._selectionRanges?.some(range=>!range.collapsed)) return;
-        const bounds = page.getBoundingClientRect();
+        if (!page) return;
+        const down = state.pdfPointer;
+        state.pdfPointer = null;
+        if (down && Math.hypot(event.clientX - down[0], event.clientY - down[1]) > 5) return;
+        const bounds = (page.querySelector?.(".canvasWrapper canvas,.canvasWrapper") || page).getBoundingClientRect();
         if (!(bounds.width > 0 && bounds.height > 0)) return;
         const point = { page: Number(page.dataset.pageNumber),
           x: (event.clientX - bounds.left) / bounds.width, y: (event.clientY - bounds.top) / bounds.height };
@@ -34,6 +38,20 @@
           && state.pdfDoc === doc && state.pdfClickRequest === request && state.locationRequest === request
           && context.doc === doc && PL.PDFContext.same(state, context)
           && frame?.browsingContext?.currentWindowGlobal === global;
+        if (context.pdf && context.viewer) {
+          const displayed = PL.PDFContext.page(context, point.page - 1)?.viewport;
+          if (displayed?.convertToPdfPoint && context.pdf.getPage && PL.SourceRegions.viewport) {
+            try {
+              const canonical = PL.SourceRegions.viewport(await context.pdf.getPage(point.page));
+              const native = displayed.convertToPdfPoint(point.x * displayed.width, point.y * displayed.height);
+              const xy = canonical.convertToViewportPoint(native[0], native[1]);
+              if (canonical.width && canonical.height) {
+                point.x = xy[0] / canonical.width; point.y = xy[1] / canonical.height;
+              }
+            } catch (error) { if (current()) Zotero.logError(error); }
+          }
+        }
+        if (!current() || !global) return;
         let block;
         try { block = await PL.ReaderUI.readerActor(global).sendQuery("locate-point", point); }
         catch (error) { if (current()) Zotero.logError(error); }

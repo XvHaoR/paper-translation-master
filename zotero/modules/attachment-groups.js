@@ -86,6 +86,7 @@
       });
       if (result.moved.length) {
         PL.Store.ensure(result.source);
+        if (result.created) PL.TitleTranslations?.moveFromAttachment(result.source, result.parent);
         await PL.Store.flush();
         PL.Store.refresh([result.parent.id, result.source.id, ...result.moved.filter(id => id !== result.source.id)]);
       }

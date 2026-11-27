@@ -9,15 +9,16 @@
     <h:div class="dialog-body">
       <h:div class="filters"><h:input id="search" type="search" placeholder="按标题、作者或年份搜索" aria-label="搜索论文"/>
         <h:label>范围<h:select id="scope"><h:option value="view">当前文献列表</h:option><h:option value="library">整个文献库</h:option></h:select></h:label>
-        <h:label>任务<h:select id="action"><h:option value="ocr">识别</h:option><h:option value="translate">翻译</h:option></h:select></h:label>
-        <h:label id="schemeRow">识别方案<h:select id="scheme"><h:option value="layout">直接解析 PDF</h:option><h:option value="local">本地 OCR</h:option><h:option value="cloud">云端 OCR</h:option></h:select></h:label>
+        <h:label>任务<h:select id="action"><h:option value="ocr">识别</h:option><h:option value="translate">翻译全文</h:option><h:option value="translate-title">仅翻译标题</h:option></h:select></h:label>
+        <h:label id="schemeRow">识别方案<h:select id="scheme"></h:select></h:label>
       </h:div>
       <h:div class="filters"><h:label>状态<h:select id="statusFilter"><h:option value="all">全部状态</h:option><h:option value="pending">待处理</h:option><h:option value="failed">失败可重试</h:option><h:option value="ready">已完成</h:option><h:option value="unavailable">无法处理</h:option></h:select></h:label>
         <h:label>排序<h:select id="sort"><h:option value="view">沿用文库顺序</h:option><h:option value="recent">最近添加优先</h:option><h:option value="title">按论文标题</h:option></h:select></h:label>
+        <h:label id="translateTitleRow" class="checkline" hidden="hidden"><h:input id="translateTitle" type="checkbox"/>同时翻译标题</h:label>
         <h:label id="forceRow" class="checkline"><h:input id="force" type="checkbox"/>强制重新识别</h:label>
       </h:div>
       <h:div class="selection-line"><h:button id="selectFiltered">勾选筛选结果</h:button><h:button id="selectPending">只选未完成</h:button><h:button id="clearSelection">清空勾选</h:button><h:span class="spacer"/><h:span id="selection" aria-live="polite"/></h:div>
-      <h:div class="list"><h:table><h:thead><h:tr><h:th class="check"><h:input id="selectPage" type="checkbox" aria-label="勾选本页可处理的论文"/></h:th><h:th>论文标题</h:th><h:th class="author">作者 / 年份</h:th><h:th class="state">识别状态</h:th><h:th class="state">翻译状态</h:th></h:tr></h:thead><h:tbody id="papers"/></h:table><h:div id="empty">正在读取文献…</h:div></h:div>
+      <h:div class="list"><h:table><h:thead><h:tr><h:th class="check"><h:input id="selectPage" type="checkbox" aria-label="勾选本页可处理的论文"/></h:th><h:th>论文标题</h:th><h:th class="author">作者 / 年份</h:th><h:th class="state">识别状态</h:th><h:th class="state" id="translationColumn">翻译状态</h:th></h:tr></h:thead><h:tbody id="papers"/></h:table><h:div id="empty">正在读取文献…</h:div></h:div>
       <h:div class="pager"><h:span id="pageInfo"/><h:span class="spacer"/><h:button id="previous">上一页</h:button><h:button id="next">下一页</h:button></h:div>
     </h:div>
     <h:footer class="dialog-footer"><h:div class="status-area"><h:p id="actionHint" class="hint"/><h:div id="notice" class="feedback" role="status"/><h:progress id="batchProgress" aria-label="批量任务进度" hidden="hidden"/></h:div>

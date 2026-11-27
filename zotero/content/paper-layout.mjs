@@ -207,7 +207,7 @@ function enhance(doc) {
     }
     groupAbstracts(doc,blocks);
     groupUnownedCaptions(doc,blocks,owners);
-    const notes=blocks.filter(block=>kind(block)==="footnote");
+    const notes=blocks.filter(block=>kind(block)==="footnote" && block.dataset.placement!=="manual");
     if (notes.length) {
       let panel=main.querySelector('.paper-footnotes');
       if (!panel) {
@@ -222,7 +222,7 @@ function enhance(doc) {
     const nav = doc.querySelector("nav");
     if (nav && !nav.querySelector(".paper-view-badge")) {
       const badge = doc.createElement("span"); badge.className = "paper-view-badge";
-      badge.textContent = "HTML 探索版"; nav.prepend(badge);
+      badge.textContent = "HTML 阅读"; nav.prepend(badge);
     }
     main.classList.add("paper-article"); body.dataset.paperEnhanced = "1";
     body.dataset.paperLayoutVersion = LAYOUT_VERSION;

@@ -112,8 +112,8 @@
       makeButton(primary,"识别 / 重试",() => PL.ReaderUI.process(reader,"ocr",state.recognitionSelect?.value),"ocr");
       const translate = () => PL.ReaderUI.process(reader,"translate");
       makeButton(primary,"翻译",translate,"translate");
-      makeButton(primary,"逐段双语",() => PL.ReaderUI.translationMode("bilingual"),"bilingual");
-      makeButton(primary,"仅译文",() => PL.ReaderUI.translationMode("translation"),"translation-only");
+      makeButton(primary,"逐段双语",() => PL.ReaderUI.translationMode(reader,"bilingual"),"bilingual");
+      makeButton(primary,"仅译文",() => PL.ReaderUI.translationMode(reader,"translation"),"translation-only");
       makeButton(primary,"联动滚动",() => PL.ReaderUI.toggleScrollSync(),"sync-scroll");
       makeButton(exports,"导出 HTML",() => PL.Artifacts.exportHTML(reader._window,state),"export-html");
       makeButton(exports,"导出 Markdown",async () => {
@@ -133,9 +133,7 @@
       if (PL.config?.unified) {
         const scheme = html("select"); scheme.setAttribute("aria-label","当前论文的识别方案");
         scheme.title = "当前论文的识别方案";
-        for (const [value,label] of Object.entries(PL.Recognition.labels)) {
-          const option = html("option"); option.value = value; option.textContent = label; scheme.append(option);
-        }
+        PL.Recognition.populate(scheme);
         scheme.value = PL.Recognition.defaultMode(); state.recognitionSelect = scheme; more.append(scheme);
         makeButton(more,"重新识别",() => PL.ReaderUI.process(reader,"force-ocr",scheme.value),"force-ocr");
       }
@@ -200,7 +198,7 @@
         if (["bilingual", "translation-only", "clear-translation"].includes(action)) {
           button.hidden = state.kind !== "translate" && action !== "clear-translation";
           if (action === "clear-translation") button.hidden = !record?.translations?.[PL.language()]?.attachmentID;
-          if (action === "bilingual" || action === "translation-only") button.setAttribute("aria-pressed", String(PL.pref("translationView", "bilingual") === (action === "bilingual" ? "bilingual" : "translation")));
+          if (action === "bilingual" || action === "translation-only") button.setAttribute("aria-pressed", String(PL.ReaderPresentation.mode(state) === (action === "bilingual" ? "bilingual" : "translation")));
         }
         if (["ocr", "force-ocr", "clear-ocr", "translate"].includes(action)) button.hidden = state.kind === "translate" && (action !== "translate" || !!state.saved);
         if (action === "update-translation") button.hidden = state.kind !== "translate" || !state.saved;
@@ -215,7 +213,9 @@
           button.setAttribute("aria-pressed",String(PL.pref("syncScroll",false)));
           button.title="在对照模式下同步 PDF 和 解析／译文的位置，开关会自动记住";
         }
-        button.disabled = (["ocr", "force-ocr", "translate", "update-translation"].includes(action) && active)
+        button.disabled = (["ocr", "force-ocr"].includes(action) && active)
+          || (["translate", "update-translation"].includes(action) && (active?.kind === "translate" ||
+              PL.Tasks.queue.some(task => task.kind === "translate" && task.source.id === source.id)))
           || (legacy && ["bilingual", "translation-only", "block-compare"].includes(action))
           || (action === "show-translation" && !record?.translations?.[PL.language()]?.attachmentID)
           || (action === "show-ocr" && !record?.ocr?.attachmentID)

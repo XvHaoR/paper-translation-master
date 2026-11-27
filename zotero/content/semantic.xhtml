@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
+<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+        xmlns:html="http://www.w3.org/1999/xhtml" title="按内容找论文" width="940" height="720">
+  <script src="chrome://paperloom/content/semantic.js"/>
+  <html:style>
+    :root{color-scheme:light dark}
+    main{display:flex;flex-direction:column;gap:12px;padding:18px;height:100vh;box-sizing:border-box;font:13px/1.5 system-ui;color:CanvasText}
+    h1,h2,p{margin:0}h1{font-size:19px}h2{font-size:14px;font-weight:650}
+    .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    #remote[hidden],#stop[hidden]{display:none}
+    input,select,button{font:inherit;color:CanvasText;background:Canvas;border:1px solid #8886;border-radius:5px;padding:5px 9px}
+    button:not(:disabled){cursor:pointer}button:disabled{opacity:.55}
+    #query,#endpoint{flex:1;min-width:200px}#search{background:#3875d7;color:white;border-color:#3875d7}
+    .english{opacity:.78;font-size:.94em}.english:empty,h2:empty,p:empty{display:none}
+    #results{min-height:0;overflow:auto;flex:1}
+    article{border-top:1px solid #8885;padding:12px 2px;display:grid;gap:8px}
+    .passage{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start}
+    .meta,#status,#remoteHint{color:FieldText;opacity:.8;font-size:12px}
+    #status{min-height:20px;overflow-wrap:anywhere}
+  </html:style>
+  <html:main>
+    <html:h1>按内容找论文</html:h1>
+    <html:form class="row" id="queryForm">
+      <html:input id="query" type="search" maxlength="1500" aria-label="文献内容线索"
+                  placeholder="例如，有篇文章比较了两种折叠方法，它们有什么区别？"/>
+      <html:button id="search" type="submit">语义搜索</html:button>
+    </html:form>
+    <html:div class="row">
+      <html:label>嵌入方式 <html:select id="backend"><html:option value="local">本地 CPU</html:option>
+        <html:option value="api">兼容 API</html:option></html:select></html:label>
+      <html:label>建索引范围 <html:select id="scope"><html:option value="view">当前文献列表</html:option>
+        <html:option value="library">整个文献库</html:option></html:select></html:label>
+      <html:button type="button" id="auto">设为本库自动索引方式</html:button>
+      <html:button type="button" id="build">手动补建索引</html:button>
+      <html:button type="button" id="stop" hidden="true">停止</html:button>
+    </html:div>
+    <html:div id="remote" hidden="true">
+      <html:div class="row">
+        <html:input id="endpoint" type="url" placeholder="兼容嵌入接口地址" aria-label="嵌入接口地址"/>
+        <html:input id="model" placeholder="模型名" aria-label="嵌入模型"/>
+        <html:input id="key" type="password" placeholder="API 密钥（按需）" aria-label="嵌入 API 密钥" autocomplete="off"/>
+      </html:div>
+      <html:p id="remoteHint">所选接口会接收建索引的文字和搜索词。设为自动索引方式后，接口配置和密钥会保存在本机。</html:p>
+    </html:div>
+    <html:p id="status" role="status" aria-live="polite">识别完成后自动建立本地索引。优先显示已保存译文，缺少译文的命中片段由当前翻译服务补译。</html:p>
+    <html:section id="results" aria-label="匹配的论文"/>
+  </html:main>
+</window>

@@ -1,22 +1,37 @@
-# 论文翻译大师 0.7.1 · 融合预览版
+# 论文翻译大师 0.8.2 · 安装与识别方案
+
+Windows x64 和 Apple 芯片 macOS 使用相同的 Zotero 插件，完整包自带对应平台的 Python、PDF 解析和本地语义检索模型。[图文教程](https://github.com/XvHaoR/paper-translation-master/blob/v0.8.2/docs/TUTORIAL.md)
 
 ## 安装
 
-1. 退出 Zotero。Windows x64 完整包请解压到固定目录，双击 `Install.cmd`。
+1. 退出 Zotero。将完整包解压到固定目录，Windows x64 运行 `Install.cmd`，Apple 芯片 Mac 运行 `Install.command`。Mac 的系统要求及本地引擎说明见 [macOS 安装](MACOS.md)。
 2. 在 Zotero「工具 → 插件 → 从文件安装」中选择解压目录里的 XPI，再重启 Zotero。插件沿用原来的 ID，已有 PDF、识别结果和译文仍可打开。
 3. 在「论文翻译大师 → 设置」中选择默认识别方案。PDF 阅读器和批量窗口可临时选其他方案。
 
-从源码安装时，在仓库根目录运行 `python scripts/install_unified.py`，再安装 `zotero/dist` 下的 XPI。源码安装首次需要联网下载 Python 依赖。完整测试包面向 Windows x64。
+从源码安装时，在仓库根目录运行 `python scripts/install_unified.py`，再安装 `zotero/dist` 下的 XPI。源码安装首次需要联网下载 Python 依赖。
 
 ## 选择识别方案
 
 - **直接解析 PDF** 默认在本机提取文字层，处理多栏、跨页段落和审稿行号。扫描页保留原图并标记待核对。
 - **本地 OCR** 在「本地 OCR 引擎」选择已安装的 PaddleOCR-VL GPU 或 RapidOCR CPU，也支持指定自定义环境或兼容的本机服务。自动检测可复用已登记的 WSL FastDeploy 环境，由融合版运行目录启动兼容的文档服务。WSL 中的模型服务须可启动。完整包包含 PDF 版面分析运行环境，本地 OCR 模型通过相应引擎安装器部署。
-- **云端 OCR** 填写飞桨 AI Studio Access Token 后保存。选择此方案会上传 PDF，单篇上限 50 MB。云端自动处理需单独启用。
+- **飞桨云端 OCR** 填写飞桨 AI Studio Access Token 后保存。选择此方案会上传 PDF，单篇上限 50 MB。云端自动处理需单独启用。
+
+- **MinerU 官方云端** 在 [MinerU API 管理页面](https://mineru.net/apiManage/token) 创建 Token。在插件设置展开「MinerU 识别设置」，填写「官方 API Token」并保存。可以把它设为默认识别方案，也可以只在批量识别时选择。每篇 PDF 最多 200 页、200 MB。[官方接口说明](https://mineru.net/apiManage/docs)
+- **MinerU 自部署** 在同一设置区填写自己的服务根地址，例如 `http://127.0.0.1:8000`。有鉴权时填写该服务的 API Key。支持 `mineru-kit api-server` 的 Tasks v1 接口，也支持通过 OpenAPI 声明 `/file_parse` 的旧版服务。使用本机地址时，PDF 在本机处理。[自部署接口说明](https://opendatalab.github.io/MinerU/usage/tasks/)
+
+MinerU 返回的标题、正文、图表、公式和页内坐标进入同一套编辑和阅读流程。表格有结构数据时可导出 Excel，有 LaTeX 的公式可直接复制。只有图像的区域可查看原图。新文献自动提交按方案单独开启。
 
 识别结果与译文保存为 Zotero 附件，附件标题显示识别方案。要在对照界面查看旧结果，可右键选中对应的 HTML 附件并选择「查看 OCR 版本」或「查看已保存译文」。点击「翻译」使用最新保存的识别结果。需要换方案时，先识别再翻译。缺少原文快照的旧附件可继续查看，重新识别后的结果可用于新翻译。
 
-三种识别方案都将原 PDF、识别结果和译文放在同一 Zotero 文献条目下。独立 PDF 首次保存结果时会自动创建「文档」条目。启动时也会整理同一可写文献库中、可通过插件标签唯一匹配原 PDF 的旧独立结果。原附件 ID、文件和 PDF 批注随附件保留，原收藏分类由 Zotero 转移到父条目。变更前的归属记录写在 Zotero 配置目录 `paperloom/attachment-groups-*.json`。
+各识别方案都将原 PDF、识别结果和译文放在同一 Zotero 文献条目下。独立 PDF 首次保存结果时会自动创建「文档」条目。启动时也会整理同一可写文献库中、可通过插件标签唯一匹配原 PDF 的旧独立结果。原附件 ID、文件和 PDF 批注随附件保留，原收藏分类由 Zotero 转移到父条目。变更前的归属记录写在 Zotero 配置目录 `paperloom/attachment-groups-*.json`。
+
+## 本地 OCR 的预热和释放
+
+在设置中将默认识别方案选为「本地 OCR」并保存，主窗口右上角和「工具 → 论文翻译大师」就会出现「预热本地 OCR」。点击后，插件使用内置测试页加载模型。预热完成后可以随时开始识别第一篇论文，也可以点「关闭本地 OCR」释放资源。
+
+直接提交本地识别也会自动启动引擎。单篇完成或批量队列中最后一篇本地识别保存后，默认空闲 5 分钟释放模型。期间提交新任务会继续使用同一个模型。在设置的「本地 OCR 引擎」中可将等待时间设为 1–120 分钟。识别过程中手动关闭会先确认，已完成的结果可以继续阅读和翻译。退出 Zotero 也会释放由插件启动的模型。自行启动的独立 OCR 服务由原启动程序管理。
+
+其他默认方案会隐藏开关。此时仍可在批量窗口为本次任务选择「本地 OCR」，任务完成后照常计时释放。
 
 ## 阅读和翻译
 

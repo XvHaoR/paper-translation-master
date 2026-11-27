@@ -10,7 +10,9 @@ from app.parsing.paddle_cloud import JOBS, PaddleCloudRecognizer, _resource
 from app.server import create_app
 
 
-def test_cloud_page_mapping_and_asset_download_do_not_forward_credentials(tmp_path):
+def test_cloud_page_mapping_and_asset_download_do_not_forward_credentials(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.parsing.paddle_cloud.time.sleep", lambda _: None)
+    counts = {}
     result_url = "https://fixture.bcebos.com/result.jsonl?signature=fake"
     image_url = "https://fixture.bcebos.com/figure.png"
     block = {"block_label": "formula", "block_content": "x^2", "block_bbox": [1,2,3,4]}
@@ -20,6 +22,11 @@ def test_cloud_page_mapping_and_asset_download_do_not_forward_credentials(tmp_pa
     }]}}
     def request(req):
         url = str(req.url)
+        counts[url] = counts.get(url, 0) + 1
+        if url == JOBS + "/job-1" and counts[url] == 1:
+            return httpx.Response(502)
+        if url == image_url and counts[url] == 1:
+            raise httpx.ReadError("connection reset")
         if url == JOBS:
             assert req.headers["authorization"] == "Bearer fixture-token"
             assert b'name="pageRanges"\r\n\r\n7' in req.read()
@@ -35,7 +42,36 @@ def test_cloud_page_mapping_and_asset_download_do_not_forward_credentials(tmp_pa
         with pytest.raises(ValueError, match="资源地址"):
             _resource(client,"https://example.com/result.json",100)
     assert parsed[0].page == 7 and parsed[0].raw["res"]["parsing_res_list"] == [block]
+    assert counts == {JOBS: 1, JOBS + "/job-1": 2, result_url: 1, image_url: 2}
     assert (tmp_path/"page-007/imgs/figure.png").read_bytes() == b"image data"
+
+
+def test_official_local_ocr_resumes_unfinished_pages_after_502(tmp_path, monkeypatch):
+    import pymupdf
+    from app.parsing.paddleocr_vl import PaddleOcrVlParser
+
+    pdf = tmp_path / "three-pages.pdf"
+    with pymupdf.open() as doc:
+        for page in range(3):
+            doc.new_page().insert_text((50, 50), str(page + 1))
+        doc.save(pdf)
+    inputs = []
+
+    class Model:
+        def predict_iter(self, path):
+            with pymupdf.open(path) as doc:
+                pages = [page.get_text().strip() for page in doc]
+            inputs.append(pages)
+            for number in pages:
+                if len(inputs) == 1 and number == "2":
+                    raise RuntimeError("Exception from the vlm worker: Error code: 502")
+                yield number
+
+    parser = PaddleOcrVlParser.__new__(PaddleOcrVlParser)
+    parser._ocr = Model()
+    monkeypatch.setattr("app.parsing.paddleocr_vl.time.sleep", lambda _: None)
+    assert list(parser._document_pages(pdf, {})) == [(1, "1", 0), (2, "2", 1), (3, "3", 1)]
+    assert inputs == [["1", "2", "3"], ["2", "3"]]
 
 
 def test_cloud_server_rejects_upload_without_plugin_header(tmp_path,monkeypatch):

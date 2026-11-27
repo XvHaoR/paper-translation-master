@@ -1,7 +1,8 @@
 /* Saved-reader wire protocol. Keep these identifiers independent of UI names. */
 export const READER_PROTOCOL = "paperloom.saved-reader/1";
 export const BRIDGE_VERSION = 1;
-export const ACTION_TYPES = new Set(["locate", "copy-latex", "excel", "save-ocr-edits", "translation-mode", "reader-scroll", "selection-locate", "selection-clear"]);
+export const ACTION_TYPES = new Set(["locate", "copy-latex", "excel", "save-ocr-edits", "translation-mode", "reader-scroll", "selection-locate", "selection-clear",
+  "annotation-save"]);
 
 export function isSavedReader(document) {
   const body = document?.body;

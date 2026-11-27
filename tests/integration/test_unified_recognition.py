@@ -13,6 +13,34 @@ from app.parsing.paddleocr_vl import OfficialPageResult
 from app.server import create_app
 
 
+def test_local_prewarm_reuses_the_job_worker_and_never_adds_a_paper(tmp_path, monkeypatch):
+    from threading import current_thread
+    from app.pipeline.orchestrator import Orchestrator
+
+    monkeypatch.delenv("PAPERBRIDGE_UNIFIED", raising=False)
+    monkeypatch.delenv("PAPERBRIDGE_OFFICIAL_ACCELERATOR", raising=False)
+    calls = []
+
+    def warm(self, mode):
+        calls.append((current_thread().name, mode))
+        if len(calls) == 1:
+            raise RuntimeError("warmup failed")
+
+    monkeypatch.setattr(Orchestrator, "prewarm_local_ocr", warm)
+    route = "/api/zotero/local-ocr/prewarm"
+    with TestClient(create_app(Settings(workspace=tmp_path))) as client:
+        assert client.post(route, json={"mode":"official"}).status_code == 503
+        for mode in ["official", "official", "rapidocr", "rapidocr"]:
+            assert client.post(route, json={"mode":mode}).json() == {"ready":True}
+        assert [mode for _, mode in calls] == ["official", "official", "rapidocr"]
+        assert all(name == "paperloom-gpu-worker" for name, _ in calls)
+        assert not list((tmp_path / "documents").iterdir())
+        assert client.post(route, json={"mode":"layout"}).status_code == 422
+    monkeypatch.setenv("PAPERBRIDGE_UNIFIED", "1")
+    with TestClient(create_app(Settings(workspace=tmp_path))) as core:
+        assert core.post(route, json={"mode":"official"}).status_code == 422
+
+
 def wait_for_export(client, submitted):
     assert submitted.status_code == 200, submitted.text
     job_id = submitted.json()["job_id"]
@@ -54,7 +82,7 @@ def test_cloud_and_layout_keep_distinct_snapshots_and_translate_exact_source(tmp
     files = {"upload": ("sample.pdf", original, "application/pdf")}
 
     with TestClient(create_app(Settings(workspace=workspace, ocr_mode="layout"))) as client:
-        assert client.get("/api/zotero/status").json()["ocr_modes"] == ["layout", "cloud"]
+        assert client.get("/api/zotero/status").json()["ocr_modes"] == ["layout", "cloud", "mineru", "mineru-local"]
         assert client.post("/api/jobs", files=files, data={"ocr_mode": "cloud"}).status_code == 403
         assert not calls
         native, native_zip = wait_for_export(client, client.post("/api/jobs", files=files, data={"ocr_mode": "layout"}))

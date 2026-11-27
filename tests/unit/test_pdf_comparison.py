@@ -76,6 +76,25 @@ assert.equal(state.pdfHighlight,null);assert.equal(state.pdfDoc,doc);
 """)
 
 
+def test_reverse_click_uses_rotation_but_ignores_drag_and_stale_highlight():
+    run_js(r"""
+const {state,pages,pdf,doc,viewport}=fixture();
+doc.defaultView.getSelection=()=>({isCollapsed:false,toString:()=> 'old selection'});
+pdf.getPage=async()=>({});
+PaperLoom.SourceRegions.viewport=()=>({width:1000,height:1000,convertToViewportPoint:(x,y)=>[1000-y,1000-x]});
+const points=[];
+PaperLoom.ReaderUI.readerActor=()=>({sendQuery:async(name,point)=>{if(name==='locate-point')points.push(point);return null;}});
+PaperLoom.Comparison.bind(state);
+const click={target:pages[0],clientX:200,clientY:400,button:0};
+state.pdfSelectionStart({type:'pointerdown',clientX:30,clientY:400});
+await state.pdfClick(click);
+assert.equal(points.length,0);
+state.pdfSelectionStart({type:'pointerdown',clientX:200,clientY:400});
+await state.pdfClick(click);
+assert.deepEqual(points,[{page:1,x:.4,y:.8}]);
+""")
+
+
 def test_known_cross_column_regions_survive_resolver_failure_and_draw_separately():
     run_js(r"""
 const {state,pages,navigated}=fixture();pages[2].style.opacity='.8';

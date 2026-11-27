@@ -42,6 +42,10 @@ def build(output, embed):
     deps = project["dependencies"]
     if unified:
         deps += project["optional-dependencies"]["layout"]
+        if release.get("semanticSearch"):
+            from bundle_semantics import install_model
+            deps += project["optional-dependencies"]["semantic"]
+            install_model(runtime)
     stack, used = list(map(Requirement, deps)), {}
     while stack:
         req = stack.pop()
@@ -63,13 +67,20 @@ def build(output, embed):
             if source.is_file():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, target)
+    if release.get("semanticSearch"):
+        from bundle_semantics import verify_model
+        verify_model(python / "python.exe", runtime)
     builder.BUILDER.build(portable=True, output=output / f"{release['slug']}-{release['version']}.xpi")
     if unified:
         shutil.copyfile(ROOT / "scripts/install_unified.py", output / "install.py")
         (output / "Install.cmd").write_text(
             '@echo off\r\n"%~dp0python\\python.exe" -X utf8 "%~dp0install.py"\r\n'
             'if errorlevel 1 echo Setup failed.\r\npause\r\n', encoding="ascii", newline="")
-        shutil.copyfile(ROOT / "docs/UNIFIED_EDITION.md", output / "README.md")
+        (output / "README.md").write_text(
+            f"# 论文翻译大师 {release['version']} · Windows x64\n\n"
+            "退出 Zotero，运行本目录的 `Install.cmd`。打开 Zotero，从文件安装同目录的 XPI，再重启。\n\n"
+            "[离线图文教程](runtime/docs/TUTORIAL.md) · [识别方案与配置](runtime/docs/UNIFIED_EDITION.md)\n",
+            encoding="utf-8")
     else:
         write_cloud_install(output, release)
     test = f"""

@@ -14,6 +14,7 @@ from pathlib import Path
 
 import bleach
 
+from app.config import artifact_path
 from app.models.ir import Block, BlockType
 from app.rendering.html_renderer import render_official_markdown
 from app.rendering.markdown_exporter import render_markdown
@@ -22,14 +23,15 @@ from app.services import translator
 from app.services.figure_export import export_figures
 from app.services.offline_reader import render_sections, copy_runtime
 
-EXPORT_VERSION = 13
+EXPORT_VERSION = 14
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 
 
 class IncompleteTranslation(ValueError):
     def __init__(self, errors: dict[str, str]):
-        super().__init__("部分段落翻译失败，已完成的翻译单元已缓存；重试即可继续")
+        block, detail = next(iter(errors.items()), ("", "模型返回空译文"))
+        super().__init__(f"{len(errors)} 个段落翻译失败，已缓存成功段落。首个错误（{block}）：{detail}")
         self.errors = errors
 
 
@@ -73,7 +75,7 @@ def _export_blocks(data: dict, doc_dir: Path, output: Path) -> list[Block]:
             if block.content.items:
                 block.content.items = [normalize_bare_math(item) for item in block.content.items]
         blocks.append(block)
-    if data.get("editor_prepared") or data.get("document", {}).get("parser", {}).get("name") == "pymupdf-layout":
+    if data.get("editor_prepared") or data.get("document", {}).get("parser", {}).get("name") in {"pymupdf-layout", "mineru"}:
         # These images already contain the user's corrected composite figures.
         # Re-running grouping here could recreate a deliberately deleted panel.
         for block in blocks:
@@ -136,7 +138,7 @@ def _zip_bundle(directory: Path) -> None:
 
 def create_ocr_export(doc_dir: Path) -> dict:
     """Persist the OCR version without checking LLM settings or translating."""
-    doc_dir = doc_dir.resolve()
+    doc_dir = artifact_path(doc_dir)
     source = (doc_dir / "document.json").read_bytes()
     identity = {"schema": EXPORT_VERSION, "kind": "ocr", "source_sha256": hashlib.sha256(source).hexdigest()}
     export_id = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:24]
@@ -185,8 +187,8 @@ def create_translation(doc_dir: Path, config: dict, cache: translator.TranslateC
     """
     if force and cache_only:
         raise ValueError("只升级显示时不能要求重新翻译")
-    doc_dir = doc_dir.resolve()
-    input_dir = source_dir.resolve() if source_dir else doc_dir
+    doc_dir = artifact_path(doc_dir)
+    input_dir = artifact_path(source_dir) if source_dir else doc_dir
     source = (input_dir / "document.json").read_bytes()
     identity = {
         "schema": EXPORT_VERSION,
@@ -297,5 +299,5 @@ def translation_path(doc_dir: Path, export_id: str, filename: str) -> Path | Non
         return None
     if filename not in {"bundle.zip", "manifest.json", "translation.md", "original.md", "index.html"}:
         return None
-    path = doc_dir / "translations" / export_id / filename
+    path = artifact_path(doc_dir) / "translations" / export_id / filename
     return path if path.is_file() else None

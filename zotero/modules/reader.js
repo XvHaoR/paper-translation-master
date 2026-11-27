@@ -267,10 +267,14 @@
       }
       catch (error) { Zotero.logError(error); }
     },
-    async translationMode(mode) {
-      if (PL.pref("translationView", "bilingual") === mode) return;
-      PL.setPref("translationView", mode);
-      for (const state of this.states.values()) await this.applyOptions(state);
+    async translationMode(reader, mode) {
+      const pdf = Zotero.Items.get(reader.itemID);
+      if (!pdf || !["translation", "bilingual"].includes(mode)) return;
+      PL.Store.ensure(pdf).translationView = mode;
+      await PL.Store.flush();
+      for (const state of this.states.values()) {
+        if (state.reader.itemID === pdf.id) await this.applyOptions(state);
+      }
       this.refresh();
     },
     async toggleScrollSync() {
@@ -297,12 +301,14 @@
     locate(state, data, navigate = true) { return PL.Comparison.locate(state, data, navigate); },
     async process(reader, kind, mode) {
       const source = Zotero.Items.get(reader.itemID);
-      const state = this.state(reader);
-      const selection = state.loadRequest;
       const force = kind === "force-ocr";
       if (force) kind = "ocr";
+      const state = this.states.get(reader), request = Symbol("reader-task");
+      const selection = state?.loadRequest;
+      if (state) state.taskView = request;
+      if (kind === "translate") PL.Tasks.enqueue(source, "title", reader._window).catch(error => PL.alert(reader._window, error));
       const saved = await PL.Tasks.enqueue(source, kind, reader._window, { force, mode });
-      if (!PL.alive || this.states.get(reader) !== state || state.loadRequest !== selection) return;
+      if (!PL.alive || !state || this.states.get(reader) !== state || state.taskView !== request || state.loadRequest !== selection) return;
       await this.showSaved(reader, saved, kind);
     },
     releaseOCR(source) {

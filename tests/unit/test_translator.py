@@ -238,15 +238,16 @@ def test_translate_batch_merged_unit_per_block_results(tmp_path):
 
 
 def test_translate_batch_merged_unit_ignores_markers(tmp_path):
-    """模型忽略 [[Bx]] 标记时:整段译文兜底挂首块,其余块报缺段。"""
+    """模型忽略块标记时，各段分别重试，保留正确的段落归属。"""
     class _NoMarkers(_FakeLLM):
         def __call__(self, base_url, api_key, model, messages, timeout=90, *, temperature=None):
-            return "[ID:0] 整段合并译文"
+            return "[ID:0] 整段合并译文" if len(messages) == 1 else "单段 " + messages[-1]["content"]
 
     res = translate_batch(_doc_dir(tmp_path, split_paragraphs=True), ["b1", "b2"], _settings(), _cache(tmp_path), _NoMarkers())
     r = res["results"]
-    assert r["b1"]["text"] == "整段合并译文"
-    assert "error" in r["b2"]
+    assert r["b1"]["text"].startswith("单段 The first half")
+    assert r["b2"]["text"].startswith("单段 into the second half")
+    assert "$E=mc^2$" in r["b2"]["text"]
 
 
 def test_translate_batch_placeholder_restored(tmp_path):
@@ -267,6 +268,35 @@ def test_translate_batch_retry_then_error(tmp_path):
     assert fake.calls  # 至少重试过
 
 
+def test_targeted_retranslation_omits_unchanged_neighbor(tmp_path):
+    fake = _FakeLLM()
+    result = translate_batch(_doc_dir(tmp_path, split_paragraphs=True), ["b2"], _settings(), _cache(tmp_path), fake, exact=True)
+    assert set(result["results"]) == {"b2"}
+    assert "$E=mc^2$" in result["results"]["b2"]["text"]
+    assert "The first half" not in str(fake.calls)
+
+
+def test_provider_rejects_temperature_and_then_temporarily_rate_limits(monkeypatch):
+    import io
+    from urllib.error import HTTPError
+    calls, waits = [], []
+
+    def provider(request, timeout):
+        calls.append(json.loads(request.data))
+        if len(calls) == 1:
+            detail = json.dumps({"error": {"param": "temperature", "message": "Use default"}}).encode()
+            raise HTTPError(request.full_url, 400, "Bad Request", {}, io.BytesIO(detail))
+        if len(calls) == 2:
+            raise HTTPError(request.full_url, 429, "Busy", {"Retry-After": "2"}, io.BytesIO(b"{}"))
+        return io.BytesIO(json.dumps({"choices": [{"message": {"content": [{"type": "text", "text": "译文"}]}}]}).encode())
+
+    monkeypatch.setattr("urllib.request.urlopen", provider)
+    monkeypatch.setattr("app.services.translator.time.sleep", waits.append)
+    assert http_chat("http://localhost/v1", "", "test", [], temperature=0.2) == "译文"
+    assert ["temperature" in body for body in calls] == [True, False, False]
+    assert waits == [2]
+
+
 def test_translate_batch_unknown_block(tmp_path):
     res = translate_batch(_doc_dir(tmp_path), ["nope"], _settings(), _cache(tmp_path), _FakeLLM())
     assert "error" in res["results"]["nope"]
@@ -280,7 +310,7 @@ def test_load_settings_defaults_env(tmp_path, monkeypatch):
     s = load_settings(tmp_path)
     assert s["llm_base_url"] == "http://localhost:11434/v1"
     assert s["llm_model"] == "qwen"
-    assert s["llm_concurrency"] == 8
+    assert s["llm_concurrency"] == 3
 
 
 def test_save_settings_roundtrip_and_validate(tmp_path):
@@ -337,6 +367,27 @@ def test_http_provider_error_is_useful_and_redacted(monkeypatch):
     assert "secret" not in str(exc.value)
 
 
+def test_http_chat_retries_connection_resets_but_stops_at_http_error(monkeypatch):
+    import io
+    import ssl
+    import urllib.error
+
+    failures = iter([urllib.error.URLError(ConnectionResetError("reset")),
+                     urllib.error.URLError(ssl.SSLEOFError("closed handshake")),
+                     urllib.error.HTTPError("https://example.com", 401, "Unauthorized", {},
+                                            io.BytesIO(b'{"error":{"message":"Missing key"}}'))])
+    waits = []
+
+    def fail(*args, **kwargs):
+        raise next(failures)
+
+    monkeypatch.setattr("urllib.request.urlopen", fail)
+    monkeypatch.setattr("app.services.translator.time.sleep", waits.append)
+    with pytest.raises(ValueError, match="HTTP 401: Missing key"):
+        http_chat("https://example.com", "", "model", [], connection_attempts=4)
+    assert waits == [0.4, 0.8]
+
+
 def test_split_unit_uses_actual_marker_ids():
     assert split_unit_output("[[B1]]second[[B0]]first", 2) == {1: "second", 0: "first"}
     assert split_unit_output("[[B0]]first[[B8]]extra", 2) == {0: "first"}
@@ -345,7 +396,7 @@ def test_split_unit_uses_actual_marker_ids():
 def test_incomplete_output_is_not_cached(tmp_path):
     cache = _cache(tmp_path)
     doc = _doc_dir(tmp_path)
-    translate_batch(doc, ["b1"], _settings(), cache, lambda *args: "[ID:0] partial")
+    translate_batch(doc, ["b1"], _settings(), cache, lambda *args, **kwargs: "[ID:0] partial")
     fake = _FakeLLM()
     results = translate_batch(doc, ["b1"], _settings(), cache, fake)["results"]
     assert fake.calls

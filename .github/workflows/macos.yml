@@ -1,0 +1,55 @@
+name: macOS bundle
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  macos-arm64:
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Build Apple silicon package
+        run: |
+          python_archive="$RUNNER_TEMP/python-macos.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            'https://github.com/astral-sh/python-build-standalone/releases/download/20261124/cpython-3.13.18%2B20261124-aarch64-apple-darwin-install_only.tar.gz' \
+            --output "$python_archive"
+          printf '%s  %s\n' ae7030747b3daddea6925f4e270918c5d977f0347fe5d03adae94ce3a630ed74 "$python_archive" | shasum -a 256 --check
+          slug=$(python -c 'import json; print(json.load(open("release.json"))["slug"])')
+          version=$(python -c 'import json; print(json.load(open("release.json"))["version"])')
+          bundle="dist/release/$slug-macos-arm64-$version"
+          python scripts/build_macos_bundle.py --output "$bundle" --python-archive "$python_archive"
+          echo "MACOS_BUNDLE=$bundle.zip" >> "$GITHUB_ENV"
+      - name: Verify extracted installer and real PDF service
+        run: |
+          unpacked="$RUNNER_TEMP/安装 测试"
+          ditto -x -k "$MACOS_BUNDLE" "$unpacked"
+          bundle="$unpacked/$(basename "$MACOS_BUNDLE" .zip)"
+          XDG_DATA_HOME="$RUNNER_TEMP/test-runtime" "$bundle/Install.command" --no-pause
+          python tests/zotero/run_macos_smoke.py "$RUNNER_TEMP/test-runtime/PaperTranslationMasterUnified/runtime.json"
+      - name: Show runtime diagnostics
+        if: failure()
+        run: |
+          root="$RUNNER_TEMP/安装 测试/$(basename "${MACOS_BUNDLE:-bundle.zip}" .zip)"
+          log="$root/runtime/log/paperloom-zotero.log"
+          if [[ -f "$log" ]]; then tail -n 80 "$log"; fi
+      - name: Test recognition, translation, and Zotero runtime
+        run: |
+          python -m pip install -e '.[dev,layout,semantic]'
+          npm ci --prefix tests/dom
+          python -m pytest tests/unit tests/integration -q
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-arm64
+          path: ${{ env.MACOS_BUNDLE }}
+          if-no-files-found: error
+          compression-level: 0

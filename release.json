@@ -1,17 +1,22 @@
 {
-  "name": "论文翻译大师 · 融合预览版",
+  "name": "论文翻译大师",
   "slug": "paper-translation-master",
   "runtimeDirectory": "PaperTranslationMasterUnified",
-  "version": "0.7.1.3",
+  "version": "0.8.2",
+  "localOnly": false,
+  "semanticSearch": true,
   "minimumExportSchema": 13,
+  "minimumCoreSchema": 14,
   "repository": "XvHaoR/paper-translation-master",
-  "prerelease": true,
+  "prerelease": false,
   "cpuInstaller": false,
   "changes": [
-    "修复阅读器视图按钮点击失效，调整对照栏的字号、导出和更多操作。",
-    "批量窗口新增最近添加排序、搜索、状态筛选和当前批次进度。",
-    "设置分为翻译服务、文献处理、阅读外观。本地工作台支持文献搜索、失败重试和窄屏显示。",
-    "修复 Windows 清理临时文件时将已保存的结果标记为失败的问题。"
+    "默认使用本地 OCR 时，工具栏支持手动预热和关闭。单篇及批量任务完成后按设置的空闲时间释放模型。",
+    "新增 MinerU 官方云端和自部署识别，支持段落定位、图表、公式与可编辑的识别结果。",
+    "外文原文划词可创建 Zotero PDF 批注，译文批注保存在相应译文。",
+    "识别后自动建立语义索引，检索结果展示中英标题和命中段落。",
+    "可拖动识别块，保存后译文随排版同步，文字修改可逐段补译。",
+    "单篇快捷识别与翻译、独立的每篇阅读模式，改善翻译和 OCR 的故障恢复。"
   ],
   "unified": true,
   "cloudPreview": false

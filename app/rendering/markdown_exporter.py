@@ -145,12 +145,14 @@ def render_markdown(blocks: list[Block]) -> str:
     out: list[str] = []
     prev_page: int | None = None
     ordered = ordered_blocks(blocks)
-    ordered = [b for b in ordered if b.type is not BlockType.FOOTNOTE] + [b for b in ordered if b.type is BlockType.FOOTNOTE]
+    def endnote(block):
+        return block.type is BlockType.FOOTNOTE and block.placement != "manual"
+    ordered = [b for b in ordered if not endnote(b)] + [b for b in ordered if endnote(b)]
     notes_started = False
     for b in ordered:
         if b.type in SKIP_TYPES:
             continue
-        if b.type is BlockType.FOOTNOTE and not notes_started and len(blocks) > 1:
+        if endnote(b) and not notes_started and len(blocks) > 1:
             out.append('## 脚注')
             notes_started = True
         if prev_page is not None and b.page != prev_page:

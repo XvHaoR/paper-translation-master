@@ -155,6 +155,7 @@
           editRevision: kind === "ocr" && artifact.edited ? artifact.source_revision : null,
           ocrRevision: kind === "translate" ? artifact.ocr_revision || null : null };
         PL.Store.set(source, kind, status, language);
+        if (kind === "ocr") PL.SemanticSearch?.schedule(source);
         return { ...status, attachment: reader };
       }
       catch (error) {

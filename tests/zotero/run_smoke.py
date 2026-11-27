@@ -7,6 +7,7 @@ Results and diagnostic logs remain under workspace/zotero-smoke/<run>.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
@@ -18,6 +19,9 @@ import sys
 import threading
 import time
 import zipfile
+
+from starlette.requests import Request
+from starlette.responses import Response
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -32,6 +36,7 @@ def main():
     parser.add_argument("--ocr-mode", choices=["official", "rapidocr"], default="official")
     parser.add_argument("--cloud-package", type=Path)
     parser.add_argument("--unified-package", type=Path, help="Test the packaged layout and local OCR routes in an isolated profile")
+    parser.add_argument("--unified-mineru-url", help="Use a running MinerU Tasks service to recognize the bundled sample PDF")
     parser.add_argument("--unified-cloud-token-file", type=Path, help="Optional credentials file for real AI Studio OCR of one fixture page")
     args = parser.parse_args()
     if args.cloud_package and args.unified_package:
@@ -200,6 +205,8 @@ def main():
         return conversion
 
     app.state.jobs.orchestrator.convert = convert
+    if args.unified_package:
+        app.state.jobs.orchestrator.prewarm_local_ocr = lambda mode: calls.update(prewarmed=mode)
     original = translator.translate_batch
 
     def fake_http(*args, **_kwargs):
@@ -210,10 +217,49 @@ def main():
 
     translator.translate_batch = lambda *a, **kw: original(*a, **({"http_post": fake_http} | kw))
     if args.unified_package:
+        mineru_fixture = ROOT / "tests/fixtures/sample_native.pdf"
+        mineru_zip = io.BytesIO()
+        with zipfile.ZipFile(mineru_zip, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("middle_json.json", json.dumps({"schema": "docvortex.middle", "schema_version": "2.0",
+                "pages": [{"page_idx": page.number - 1, "blocks": [{"type": "text", "bbox": [.1, .12, .86, .18],
+                    "content": [{"type": "text", "content": "MinerU Zotero integration fixture."}]}]}
+                    for page in conversion.ir.pages]}))
+        @app.post("/mineru-fixture/v1/tasks", status_code=202)
+        def mineru_submit(body: dict):
+            assert body["files"][0]["bytes"] == mineru_fixture.stat().st_size
+            return {"task_id": "sample", "files": [{"file_id": "pdf", "status": "waiting-file",
+                "upload": {"url": "/mineru-fixture/upload", "headers": {}}}]}
+
+        @app.put("/mineru-fixture/upload")
+        async def mineru_upload(request: Request):
+            assert await request.body() == mineru_fixture.read_bytes()
+            return {"status": "pending"}
+
+        @app.get("/mineru-fixture/v1/tasks/sample")
+        def mineru_state():
+            return {"files": [{"file_id": "pdf", "status": "completed", "result_url": "/mineru-fixture/result"}]}
+
+        @app.get("/mineru-fixture/result")
+        def mineru_result():
+            return Response(mineru_zip.getvalue(), media_type="application/zip")
+
         @app.post("/fixture/v1/chat/completions")
         def fixture_llm(body: dict):
             assert "temperature" not in body
+            if body["messages"][0]["role"] == "system":
+                title = body["messages"][-1]["content"]
+                titles = {"Unified edition smoke fixture": "融合版测试论文", "Metadata-only smoke paper": "无 PDF 测试论文"}
+                calls["llm"] += 1
+                if "excerpt" in body["messages"][0]["content"]:
+                    return {"choices": [{"message": {"content": "片段译文：" + title}}]}
+                return {"choices": [{"message": {"content": titles[title]}}]}
             text = fake_http(None, None, None, body["messages"])
+            text = text.replace(
+                "We present a benchmark for formula-aware document reading. "
+                "The proposed method combines native text extraction with vision-language recognition, "
+                "achieving high fidelity on equations and tables while preserving paragraph structure for machine translation.",
+                "我们提出了一个支持公式的文档阅读基准。该方法结合原生文本提取与视觉语言识别，保留表格、公式和段落结构。",
+            )
             return {"choices": [{"message": {"content": text}}]}
     (settings.workspace / "settings.json").write_text(json.dumps({
         "llm_base_url": "http://127.0.0.1:1/v1", "llm_model": "smoke", "lang_to": "zh"
@@ -446,6 +492,7 @@ def main():
         source_xpi = next(args.unified_package.glob("*.xpi"))
         harness = Path(__file__).with_name("unified_smoke.js").read_text(encoding="utf-8")
         constants += f"\nvar unifiedFixtureURL = {json.dumps(f'http://127.0.0.1:{port}')};"
+        constants += f"\nvar unifiedMineruURL = {json.dumps(args.unified_mineru_url)};"
         constants += f"\nvar unifiedCloudPDF = {json.dumps(str(cloud_pdf) if args.unified_cloud_token_file else None)};"
         with zipfile.ZipFile(source_xpi) as source, zipfile.ZipFile(test_plugin, "w") as dest:
             for name in source.namelist():
@@ -453,6 +500,7 @@ def main():
                 if name == "bootstrap.js":
                     content += ("\n" + constants + "\n" + harness).encode()
                 dest.writestr(name, content)
+            dest.write(Path(__file__).with_name("annotation_smoke.mjs"), "annotation-smoke.mjs")
     log_path = run / "zotero.log"
     print(f"Isolated Zotero smoke test: {run}", flush=True)
     with log_path.open("w", encoding="utf-8") as log:

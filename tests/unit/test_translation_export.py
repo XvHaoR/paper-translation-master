@@ -202,6 +202,32 @@ def test_provider_change_does_not_reuse_other_providers_blocks(document, tmp_pat
     assert CONFIG["llm_base_url"] in calls and other["llm_base_url"] in calls
 
 
+def test_translate_only_title_uses_saved_model_without_a_pdf(tmp_path, monkeypatch):
+    from app.services import translator
+
+    translator.save_settings(tmp_path, {
+        "llm_base_url": "http://127.0.0.1:8080/v1", "llm_model": "fixture",
+        "llm_temperature": 0,
+    })
+    calls = []
+
+    def fake_chat(url, key, model, messages, **kwargs):
+        calls.append((url, model, messages, kwargs))
+        return "  折叠\n纸信封  "
+
+    monkeypatch.setattr(translator, "http_chat", fake_chat)
+    with TestClient(create_app(Settings(workspace=tmp_path))) as client:
+        route = "/api/zotero/translate-title"
+        assert client.post(route, json={"title": "Folding a paper envelope", "lang_to": "zh"}).json() == {"title": "折叠 纸信封"}
+        assert client.post(route, json={"title": "", "lang_to": "zh"}).status_code == 400
+        assert client.post(route, json={"title": "Valid title", "lang_to": "not a code"}).status_code == 400
+    assert len(calls) == 1
+    _, model, messages, kwargs = calls[0]
+    assert model == "fixture"
+    assert messages[-1] == {"role": "user", "content": "Folding a paper envelope"}
+    assert kwargs["temperature"] == 0
+
+
 def test_temperature_reaches_connection_test_and_new_translation(document, tmp_path, monkeypatch):
     requests = []
 

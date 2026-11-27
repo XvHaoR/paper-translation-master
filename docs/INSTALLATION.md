@@ -1,6 +1,6 @@
 # 本地 OCR 引擎与历史版本安装
 
-使用 0.7.1 的用户请先安装[融合版完整包](UNIFIED_EDITION.md)。本页的 GPU／CPU 安装器可为融合版部署本地 OCR 引擎，融合版使用完整包内的 XPI。
+0.8.2 用户请先安装对应平台的完整包。本页的 Windows GPU／CPU 安装器为可选的本地 OCR 引擎。插件使用 0.8.2 完整包内的 XPI。[当前安装与使用教程](TUTORIAL.md)
 
 0.6.0 云端版：下载[Windows 完整包](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.6.0/paper-translation-master-cloud-windows-x64-0.6.0.zip)，解压并运行 Install-Cloud.cmd，安装包内 XPI，重启后填写 [AI Studio Access Token](https://aistudio.baidu.com/account/accessToken)。无需本机模型；PDF 会上传至飞桨。
 
@@ -66,6 +66,6 @@ PDF 顶部可切换原文、对照和仅 OCR；右侧可看 OCR、逐段双语�
 - 提示旧服务：关闭旧外部启动器或等待插件拥有的进程退出，再启动新版服务。不会结束其他程序占用的进程。
 - 已保存结果无需服务；OCR 模型与依赖仅在识别时需要。
 
-插件面向 Zotero 7–10，界面回归使用 Windows Zotero 10.0.7；macOS／Linux 没有一键安装器，未做完整平台验收。
+插件面向 Zotero 7–10，Windows 界面回归使用 Zotero 10.0.7。Apple 芯片用户可参考 [macOS 完整包安装说明](MACOS.md)。Linux 尚未做完整平台验收。
 Windows 安装器没有代码签名，全新系统从下载到识别的完整覆盖仍在补充。不同引擎、论文和设备的耗时及识别质量会不同。
 发布包附 `SHA256SUMS`，可校验下载完整性。原创代码为 AGPL-3.0-or-later，第三方依赖保留各自许可证。

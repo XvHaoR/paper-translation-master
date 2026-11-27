@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -31,6 +32,9 @@ def load_release(root: Path) -> dict:
 def write_entry(bundle: ZipFile, name: str, data: bytes | str) -> None:
     """Fixed timestamp and permissions make repeated builds reproducible."""
     info = ZipInfo(name, (2020, 1, 1, 0, 0, 0))
+    info.create_system = 3
+    if isinstance(data, bytes) and Path(name).suffix != ".png":
+        data = data.replace(b"\r\n", b"\n")
     info.compress_type = ZIP_DEFLATED
     info.external_attr = 0o100644 << 16
     bundle.writestr(info, data)
@@ -58,7 +62,8 @@ def build(*, portable: bool = False, output: Path | None = None,
         config["minimumExportSchema"] = release.get("minimumExportSchema", 7)
         if release.get("unified"):
             config["unified"] = True
-            # An upgrade requires the matching Windows runtime. Keep the release channel manual.
+            config["minimumCoreSchema"] = release.get("minimumCoreSchema", config["minimumExportSchema"])
+            # An upgrade requires the matching platform runtime. Keep the release channel manual.
             manifest["applications"]["zotero"]["update_url"] = (
                 f"https://github.com/{release['repository']}/releases/download/v{release['version']}/updates.json")
         if release.get("cloudPreview"):
@@ -67,6 +72,8 @@ def build(*, portable: bool = False, output: Path | None = None,
         if release.get("localOnly"):
             manifest["applications"]["zotero"]["update_url"] = "https://127.0.0.1/paperloom-html-preview-updates.json"
             config["localHTMLPreview"] = True
+        if release.get("semanticSearch"):
+            config["semanticSearch"] = True
         filename = f"{release['slug']}-{manifest['version']}.xpi"
     else:
         candidates = [root.parent / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python"),
@@ -103,6 +110,9 @@ def build(*, portable: bool = False, output: Path | None = None,
                         raise ValueError(f"Symlinks cannot be packaged: {path}")
                     write_entry(bundle, path.relative_to(root).as_posix(), path.read_bytes())
         write_entry(bundle, "config.json", json.dumps(config, ensure_ascii=False, indent=2) + "\n")
+        if config.get("unified"):
+            sample = (root.parent / "app/static/ocr-warmup.pdf").read_bytes()
+            write_entry(bundle, "content/ocr-warmup.b64", base64.b64encode(sample))
         write_entry(bundle, "content/table-excel.js", (root.parent / "app/static/table_excel.js").read_bytes())
         write_entry(bundle, "content/reader.css", (root.parent / "app/static/offline_reader.css").read_bytes()
                     + b"\n" + (root.parent / "app/static/paper_reader.css").read_bytes())

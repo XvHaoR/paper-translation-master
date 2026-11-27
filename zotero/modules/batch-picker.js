@@ -36,9 +36,11 @@
       // selected PDFs can still identify a different/supplementary attachment.
       const candidates = [...items.filter(item=>item.isRegularItem?.() ||
         (item.isAttachment?.() && item.attachmentContentType === "application/pdf" && !parents.has(item.parentItemID))), ...selected];
-      const preselected = new Set();
+      const preselected = new Set(), selectedPapers = new Set();
       for (const item of selected) {
         try { preselected.add((await PL.Tasks.sourceFor(item)).id); } catch (_) {}
+        const paper = PL.TitleTranslations.paper(item);
+        if (paper) selectedPapers.add(paper.id);
       }
       const seen = new Set(), rows = [];
       for (let index=0; index<candidates.length; index++) {
@@ -63,18 +65,22 @@
         const dateAdded = paper.dateAdded || "";
         const added = dateAdded && Zotero.Date.sqlToDate(dateAdded, true);
         const localAdded = added && Number.isFinite(added.getTime()) ? Zotero.Date.dateToSQL(added).slice(0,10) : "";
-        rows.push({id,source,item:paper,title:paper.getField("title") || source?.getField("title") || "未命名文献",
+        const titleItem = PL.TitleTranslations.paper(paper);
+        rows.push({id,source,item:paper,titleItem,title:paper.getField("title") || source?.getField("title") || "未命名文献",
           creator:paper.getField("firstCreator") || "",year:(paper.getField("date") || "").match(/\d{4}/)?.[0] || "",
-          dateAdded,localAdded,pdfTitle:source?.getField("title") || "",available:!!source && !reason,reason,preselected:preselected.has(id)});
+          dateAdded,localAdded,pdfTitle:source?.getField("title") || "",available:!!source && !reason,reason,preselected:preselected.has(id),
+          titleAvailable:!!titleItem && !!PL.TitleTranslations.original(titleItem), titlePreselected:selectedPapers.has(titleItem?.id)});
         if (index % 50 === 49) await Zotero.Promise.delay(0);
       }
       return rows;
     },
-    async submit(owner, action, rows, ids, mode, onBatch) {
+    async submit(owner, action, rows, ids, mode, withTitle = false, onBatch) {
       const wanted = new Set(ids);
-      const items = rows.filter(row=>row.available && wanted.has(row.id)).map(row=>row.source);
-      if (!items.length) throw new Error("请先勾选至少一篇有本地 PDF 的文献");
-      return PL.Tasks.runItems(owner,action,items,mode,onBatch);
+      const titleOnly = action === "translate-title";
+      const items = rows.filter(row => wanted.has(row.id) && (titleOnly ? row.titleAvailable : row.available))
+        .map(row => titleOnly ? row.titleItem : row.source);
+      if (!items.length) throw new Error(titleOnly ? "请先勾选至少一篇有标题的文献" : "请先勾选至少一篇有本地 PDF 的文献");
+      return PL.Tasks.runItems(owner,action,items,mode,withTitle,onBatch);
     },
     close(owner) {
       const dialog = this.windows.get(owner);

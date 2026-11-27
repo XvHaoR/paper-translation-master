@@ -5,13 +5,19 @@
   const data = document.getElementById("pl-editor-data");
   if (!data) return;
   const payload = JSON.parse(data.textContent);
-  const initial = { changes: payload.changes || {}, insertions: payload.insertions || [] };
+  const initial = { changes: payload.changes || {}, insertions: payload.insertions || [], order:payload.order || [], moved:payload.moved || [] };
   let draft = structuredClone(initial), history = [], editing = false, busy = false;
   const labels = {document_title:"论文标题",heading:"章节标题",paragraph:"正文",abstract:"摘要",
     figure_caption:"图注",table_caption:"表注",list:"列表",equation_block:"公式",equation_inline:"行内公式",
     table:"表格",code:"代码",reference:"参考文献",footnote:"脚注",authors:"作者",figure:"图片"};
   const sections = new Map(Array.from(document.querySelectorAll(".pl-block")).map(node => [node.dataset.blockId, node]));
   const blocks = new Map(payload.blocks.map(block => [block.id, block]));
+  const main = document.querySelector("main"), positions = new Map();
+  const stage = document.createElement("div");
+  stage.className = "pl-edit-stage";
+  stage.hidden = true;
+  main.before(stage);
+  let moving = "";
   const status = document.getElementById("pl-status");
   function element(tag, text, parent) {
     const node = document.createElement(tag); if (text != null) node.textContent = text;
@@ -26,18 +32,18 @@
   }
   const bar = element("div", null, document.body); bar.className = "pl-editor-bar"; bar.hidden = true;
   element("strong", "编辑 OCR", bar);
-  element("span", "点选段落后修改内容类型；连续摘要、图注、表注在保存后自动合并展示。", bar);
+  element("span", "拖动「移动」手柄可调整顺序。跨页移动也可以先点手柄，再点目标块的「移到此处」。", bar);
   const stateLabel = element("span", "修改保存在新版本中，PDF 原件不变", bar);
   control(bar, "保存修改", "editor-save", async () => {
     collect();
     busy = true; update();
     try {
-      await window.PaperLoomOffline.action({type:"save-ocr-edits",changes:draft.changes,insertions:draft.insertions});
+      await window.PaperLoomOffline.action({type:"save-ocr-edits",...draft});
       stateLabel.textContent = "已保存";
     } finally { busy = false; update(); }
   });
   control(bar, "撤销", "editor-undo", () => { if (history.length) { draft = history.pop(); redraw(); } });
-  control(bar, "恢复原始 OCR", "editor-reset", () => { remember(); draft={changes:{},insertions:[]}; redraw(); });
+  control(bar, "恢复原始 OCR", "editor-reset", () => { remember(); draft={changes:{},insertions:[],order:[],moved:[]}; redraw(); });
   control(bar, "取消编辑", "editor-cancel", () => { draft=structuredClone(initial);history=[];close(); });
   function remember() { history.push(structuredClone(draft)); if (history.length > 100) history.shift(); }
   function baseRole(block) {
@@ -74,10 +80,24 @@
   function update() {
     for(const node of bar.querySelectorAll('button'))node.disabled=busy||(node.dataset.action==='editor-undo'&&!history.length);
     if(busy)stateLabel.textContent="正在保存…";
-    else stateLabel.textContent=`${Object.keys(draft.changes).length} 个内容块修改，${draft.insertions.length} 个新增标题`;
+    else stateLabel.textContent=moving ? "请选择目标位置" : `${Object.keys(draft.changes).length} 个内容块修改，${draft.moved.length} 个移动，${draft.insertions.length} 个新增标题`;
+  }
+  function move(from, to, after) {
+    if (!from || from === to || !blocks.has(from) || !blocks.has(to)) return;
+    collect(); remember();
+    const order = (draft.order.length ? draft.order : [...blocks.keys()]).filter(id => id !== from);
+    order.splice(order.indexOf(to) + Number(after), 0, from);
+    draft.order = order;
+    if (!draft.moved.includes(from)) draft.moved.push(from);
+    moving = ""; redraw();
+    sections.get(from)?.scrollIntoView({block:"nearest"});
   }
   function redraw() {
     document.querySelectorAll('.pl-edit-fields,.pl-inserted-heading,.pl-deletion-note').forEach(node=>node.remove());
+    if (editing) for (const id of draft.order.length ? draft.order : blocks.keys()) {
+      const node = sections.get(id);
+      if (node) stage.append(node);
+    }
     for(const [id,node] of sections){
       if(!blocks.has(id)){node.hidden=editing;continue;}
       node.classList.toggle('pl-deleted',!!draft.changes[id]?.deleted);
@@ -90,6 +110,14 @@
         continue;
       }
       const fields=element('div',null,node);fields.className='pl-edit-fields';
+      const handle=control(fields,'移动','editor-move',()=>{moving=moving===id?"":id;redraw();});
+      handle.draggable=true;
+      handle.setAttribute("aria-pressed", String(moving===id));
+      handle.addEventListener("dragstart",event=>{moving=id;event.dataTransfer.setData("text/plain",id);event.dataTransfer.effectAllowed="move";});
+      if(moving && moving!==id){
+        control(fields,'移到此处之前','move-before',()=>move(moving,id,false));
+        control(fields,'移到此处之后','move-after',()=>move(moving,id,true));
+      }
       const label=element('label','内容类型 ',fields),select=element('select',null,label);
       select.setAttribute('aria-label','内容类型');
       for(const [value,text] of Object.entries(labels)){
@@ -124,9 +152,32 @@
     }
     update();
   }
-  function close(){editing=false;bar.hidden=true;document.body.classList.remove('pl-editing');redraw();}
+  stage.addEventListener("dragover",event=>{
+    if (!moving || !event.target.closest(".pl-block")) return;
+    event.preventDefault();event.dataTransfer.dropEffect="move";
+  });
+  stage.addEventListener("drop",event=>{
+    const node=event.target.closest(".pl-block");
+    if (!moving || !node) return;
+    event.preventDefault();
+    const rect=node.getBoundingClientRect();
+    move(moving,node.dataset.blockId,event.clientY>rect.top+rect.height/2);
+  });
+  stage.addEventListener("dragend",()=>{moving="";update();});
+  function close(){
+    editing=false;moving="";bar.hidden=true;stage.hidden=true;main.hidden=false;
+    for(const [id,marker] of positions) marker.replaceWith(sections.get(id));
+    positions.clear();document.body.classList.remove('pl-editing');redraw();
+  }
   function open(section, focusType=false) {
       if(editing)collect();
+      else {
+        for(const [id,node] of sections) {
+          if(!blocks.has(id)) continue;
+          const marker=document.createComment("editor position");node.before(marker);positions.set(id,marker);
+        }
+        main.hidden=true;stage.hidden=false;
+      }
       editing=true;bar.hidden=false;document.body.classList.add('pl-editing');
       const first=section||document.querySelector('.pl-block.selected')||document.querySelector('.pl-block');
       if(first)window.PaperLoomOffline.select(first,false);

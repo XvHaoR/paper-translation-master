@@ -19,7 +19,11 @@
       // It changes text without scaling the source PDF or raster figures.
       context.textZoom = this.fontSize() / 17;
     },
-    viewOptions(state) { return { mode: PL.pref("translationView", "bilingual"), focus: PL.pref("blockCompare", true),
+    mode(state) {
+      const pdf = state?.reader && Zotero.Items.get(state.reader.itemID);
+      return (pdf && PL.Store.get(pdf)?.translationView) || PL.pref("translationView", "bilingual");
+    },
+    viewOptions(state) { return { mode: this.mode(state), kind: state?.kind, focus: PL.pref("blockCompare", true),
       split: state?.mode === "split", syncScroll: PL.pref("syncScroll",false), appearance: PL.Appearance.read() }; },
     async applyStyle(state) {
       const global = state.frame?.browsingContext?.currentWindowGlobal;
