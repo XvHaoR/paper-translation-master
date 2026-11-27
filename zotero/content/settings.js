@@ -75,7 +75,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     for (const option of $("backend").options) if (option.value === "cloud") option.hidden = true;
     $("localEngineHint").textContent = "直接解析和云端 OCR 使用融合版运行环境。本地 OCR 可连接已有 GPU／CPU 安装，也可指定自定义环境。";
     if (PL.Runtime.isMac()) {
-      $("localEngineHint").textContent = "macOS 完整包支持直接解析 PDF 与飞桨云端 OCR。本地 OCR 使用另行配置的兼容引擎或本机服务。";
+        $("localEngineHint").textContent = "Mac 可直接解析 PDF、连接飞桨或 MinerU。做本地 OCR 时，请连接已部署的兼容引擎或本机服务。";
       for (const option of $("backend").options) if (option.value === "wsl") option.hidden = true;
       if ($("backend").value === "wsl") $("backend").value = "local";
       for (const option of $("localEngine").options) {

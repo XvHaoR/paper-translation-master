@@ -31,6 +31,10 @@ SOURCE_ROOT_FILES = ROOT_FILES | {".gitignore", "Install.cmd"}
 PUBLIC_DOCS = {"docs/INSTALLATION.md", "docs/RELEASING.md", "docs/READER_ARCHITECTURE.md", "docs/RAPIDOCR_EDITION.md",
                "docs/UNIFIED_EDITION.md", "docs/MIGRATION.md", "docs/MACOS.md"}
 SOURCE_SCRIPTS = {"scripts/build_cloud_bundle.py", "scripts/build_macos_bundle.py", "scripts/bundle_semantics.py", "scripts/install_unified.py"}
+PUBLIC_DOCS.add("docs/TUTORIAL.md")
+PUBLIC_DOCS.update(f"docs/languages/{language}.md" for language in ("en", "ja", "es", "fr", "de"))
+PUBLIC_DOCS.update(f"docs/images/{figure}.png" for figure in (
+    "recognition-methods", "library", "batch", "bilingual-reader", "edit-blocks", "semantic-search"))
 PRIVATE_PATTERNS = [
     re.compile(rb"[A-Za-z]:[\\/]+(?:Users[\\/]+(?!Public(?:[\\/]|$)|Default(?:[\\/]|$))[^\\/\s\"']+[\\/]+|claude_test[\\/]+)", re.I),
     re.compile(rb"(?:sk-[A-Za-z0-9_-]{24,}|AIza[A-Za-z0-9_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,})"),

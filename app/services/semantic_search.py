@@ -196,6 +196,8 @@ class SemanticIndex:
         if any(len(row[-1]) != vector.nbytes for row in rows):
             raise ValueError("接口输出维度已改，请使用新的模型标识重建索引")
         scores = np.frombuffer(b"".join(row[-1] for row in rows), dtype="<f4").reshape(len(rows), -1) @ vector
+        title_labels = {"标题", "翻译标题"}
+        with_excerpts = {row[0] for row in rows if row[7] not in title_labels}
         papers = {}
         for index in np.argsort(-scores):
             paper, title, pdf, snapshot, text, page, block, label, _ = rows[index]
@@ -204,6 +206,13 @@ class SemanticIndex:
                 if len(papers) >= 20:
                     continue
                 hit = papers[paper] = {"paper": paper, "title": title, "pdf": pdf, "snapshot": snapshot, "passages": []}
-            if len(hit["passages"]) < 2 and not any(part["block"] == block and part["text"] == text for part in hit["passages"]):
+            # Titles rank the paper and are already displayed in the heading.
+            if label in title_labels and paper in with_excerpts:
+                continue
+            existing = next((part for part in hit["passages"] if part["text"] == text), None)
+            if existing is not None:
+                if page and not existing["page"]:
+                    existing.update(page=page, block=block, label=label)
+            elif len(hit["passages"]) < 2:
                 hit["passages"].append({"text": text, "page": page, "block": block, "label": label})
         return list(papers.values())

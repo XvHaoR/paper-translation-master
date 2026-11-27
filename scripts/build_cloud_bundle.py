@@ -76,7 +76,11 @@ def build(output, embed):
         (output / "Install.cmd").write_text(
             '@echo off\r\n"%~dp0python\\python.exe" -X utf8 "%~dp0install.py"\r\n'
             'if errorlevel 1 echo Setup failed.\r\npause\r\n', encoding="ascii", newline="")
-        shutil.copyfile(ROOT / "docs/UNIFIED_EDITION.md", output / "README.md")
+        (output / "README.md").write_text(
+            f"# 论文翻译大师 {release['version']} · Windows x64\n\n"
+            "退出 Zotero，运行本目录的 `Install.cmd`。打开 Zotero，从文件安装同目录的 XPI，再重启。\n\n"
+            "[离线图文教程](runtime/docs/TUTORIAL.md) · [识别方案与配置](runtime/docs/UNIFIED_EDITION.md)\n",
+            encoding="utf-8")
     else:
         write_cloud_install(output, release)
     test = f"""

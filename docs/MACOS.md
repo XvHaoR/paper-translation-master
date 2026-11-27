@@ -1,14 +1,12 @@
-# 论文翻译大师 0.7.1 · macOS 安装
+# 在 Apple 芯片 Mac 上安装 0.8.2
 
-面向 Apple 芯片 Mac（M 系列），需要 macOS 14 或更新版本以及 Zotero 7–10。完整包自带 Python 和 PDF 版面分析环境。
+适用于 Apple 芯片（M 系列）、macOS 14 及以上和 Zotero 7–10。完整包内有通用 XPI、Python、PDF 解析环境和离线多语检索模型。[下载 macOS arm64 完整包](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.8.2/paper-translation-master-macos-arm64-0.8.2.zip)
 
-1. 退出 Zotero，将完整 ZIP 解压到准备长期保留的位置。
-2. 双击解压目录中的 `Install.command` 注册运行环境。也可打开「终端」，输入 `/bin/zsh` 和一个空格，把 `Install.command` 拖进终端，再按回车。
-3. 打开 Zotero，在「工具 → 插件 → 从文件安装」中选择包内的 XPI，重启 Zotero。
-4. 在「论文翻译大师 → 设置」中选择识别方式。选用飞桨云端 OCR 时需填写 AI Studio Access Token，选用大模型翻译时需配置翻译接口、模型和密钥。
+1. 退出 Zotero，将 ZIP 解压到准备长期保留的文件夹。
+2. 在解压目录中运行 `Install.command`。也可以在终端输入 `/bin/zsh` 和一个空格，把该文件拖到终端后按回车。安装器会登记此目录；以后移动了它，请再运行一次。
+3. 打开 Zotero，在「工具 → 插件 → 齿轮 → 从文件安装」中选择同目录的 XPI，然后重启。升级时同时更新运行环境和 XPI。
+4. 从「工具 → 论文翻译大师 → 设置」选择默认识别方案。直接解析适合有文字层的 PDF。扫描件可选飞桨云端、MinerU 官方云端、自部署 MinerU，或已配置的兼容本地 OCR 引擎。
 
-直接解析在本机处理 PDF 的文字层。遇到扫描件可联网使用飞桨云端 OCR，所选 PDF 会上传到飞桨。阅读、编辑、批量处理及导出使用 0.7.1 的同一套 Zotero 插件。
+Mac 和 Windows 共用阅读器、标题翻译、批量任务、原文和译文批注、拖动排版及语义检索。查找论文时可使用包内的 CPU 模型。启用翻译时填写兼容接口、模型名称，以及该服务要求的密钥。
 
-本地 OCR 需要自行配置兼容的 Mac 引擎或已启动的本机服务。Windows NVIDIA／WSL／RapidOCR 安装器仅用于 Windows。
-
-移动解压目录后，请重新运行其中的 `Install.command`。插件沿用原来的 ID，已保存的 Zotero 附件可继续打开。
+本地 OCR 模型需要另行部署。可在「本地 OCR 引擎」配置已有的兼容 Python 环境或本机服务地址。默认方案选「本地 OCR」后，插件会显示预热开关。外部自行启动的服务由该服务的启动程序管理。Windows 的 GPU／CPU 安装器适用于 Windows。[图文使用教程](https://github.com/XvHaoR/paper-translation-master/blob/v0.8.2/docs/TUTORIAL.md)

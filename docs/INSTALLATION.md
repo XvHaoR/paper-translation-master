@@ -1,6 +1,6 @@
 # 本地 OCR 引擎与历史版本安装
 
-使用 0.7.1 的用户请先安装[融合版完整包](UNIFIED_EDITION.md)。本页的 GPU／CPU 安装器可为融合版部署本地 OCR 引擎，融合版使用完整包内的 XPI。
+0.8.2 用户请先安装对应平台的完整包。本页的 Windows GPU／CPU 安装器为可选的本地 OCR 引擎。插件使用 0.8.2 完整包内的 XPI。[当前安装与使用教程](TUTORIAL.md)
 
 0.6.0 云端版：下载[Windows 完整包](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.6.0/paper-translation-master-cloud-windows-x64-0.6.0.zip)，解压并运行 Install-Cloud.cmd，安装包内 XPI，重启后填写 [AI Studio Access Token](https://aistudio.baidu.com/account/accessToken)。无需本机模型；PDF 会上传至飞桨。
 

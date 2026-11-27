@@ -43,4 +43,14 @@ def test_embedding_index_partitions_libraries_and_models_and_reuses_unchanged_pa
         assert client.post(prefix + "index", json=new, headers=auth).json() == {"passages": 1}
         hit, = client.post(prefix + "search", json={**scope, "query": "纸张折痕"}, headers=auth).json()["hits"]
         assert [part["page"] for part in hit["passages"]] == [3]
+        # A title can occur in metadata and again on the PDF's title page.
+        copies = [{"text": "crease guide", "label": "标题"},
+                  {"text": "crease guide", "label": "标题", "page": 1, "block": "title"}]
+        for revision, passages, expected in [
+            ("3", copies, ["title"]),
+            ("4", copies + [{"text": "Fold the corners", "label": "正文", "page": 2, "block": "fold"}], ["fold"]),
+        ]:
+            assert client.post(prefix + "index", json={**paper, "revision": revision * 64, "passages": passages}, headers=auth).is_success
+            hit, = client.post(prefix + "search", json={**scope, "query": "折痕"}, headers=auth).json()["hits"]
+            assert [part["block"] for part in hit["passages"]] == expected
     assert b"test-key" not in (tmp_path / "semantic-search.sqlite3").read_bytes()

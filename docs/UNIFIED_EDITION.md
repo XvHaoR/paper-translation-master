@@ -1,4 +1,6 @@
-# 论文翻译大师 0.8.2 · 融合预览版
+# 论文翻译大师 0.8.2 · 安装与识别方案
+
+Windows x64 和 Apple 芯片 macOS 使用相同的 Zotero 插件，完整包自带对应平台的 Python、PDF 解析和本地语义检索模型。[图文教程](https://github.com/XvHaoR/paper-translation-master/blob/v0.8.2/docs/TUTORIAL.md)
 
 ## 安装
 
