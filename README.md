@@ -37,6 +37,8 @@ Windows 提供两种可选的本地引擎。PaddleOCR-VL GPU 安装器需要 NVI
 
 [分步图文教程](docs/TUTORIAL.md) · [识别方案与高级配置](docs/UNIFIED_EDITION.md) · [升级已有文库](docs/MIGRATION.md) · [更新记录](CHANGELOG.md)
 
+开发版的批量窗口支持按添加时间排序和按处理状态筛选。设置分为「翻译服务」「文献处理」「阅读外观」。[开发版更新记录](CHANGELOG.md#未发布)
+
 ## 开发与许可
 
 ```bash

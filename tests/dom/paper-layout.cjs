@@ -123,6 +123,35 @@ test('editor-types',async()=>{
   view.window.close();
 });
 
+test('reader-toolbar-rerender', () => {
+  const view = dom('');
+  const {window} = view;
+  const doc = window.document;
+  const reader = {itemID: 1, _window: window, _iframeWindow: window};
+  window.Zotero = {Items: {get: () => ({attachmentContentType: 'application/pdf'})}};
+  window.PaperLoom = {alive: true, pref: () => '0.5', run: (_window, callback) => callback};
+  window.eval(fs.readFileSync(path.join(root, 'zotero/modules/reader.js'), 'utf8'));
+  const ui = window.PaperLoom.ReaderUI;
+  const activated = [];
+  ui.setMode = (activeReader, mode) => { assert.equal(activeReader, reader); activated.push(mode); };
+  const toolbar = doc.querySelector('nav');
+  const render = () => ui.toolbar({reader, doc, append: node => toolbar.append(node)});
+  render();
+  for (const mode of ['split', 'ocr', 'original']) {
+    const selector = `button[data-mode="${mode}"]`;
+    const pressed = toolbar.querySelector(selector);
+    const pointer = new window.Event('pointerdown', {bubbles: true, cancelable: true});
+    pressed.dispatchEvent(pointer);
+    assert.equal(pointer.defaultPrevented, true);
+    toolbar.replaceChildren();
+    render();
+    assert.equal(toolbar.querySelector(selector), pressed);
+    pressed.click();
+  }
+  assert.deepEqual(activated, ['split', 'ocr', 'original']);
+  view.window.close();
+});
+
 (async()=>{
   ({enhance,exportPage}=await import(pathToFileURL(path.join(root,'zotero/content/paper-layout.mjs'))));
   const name=process.argv[2];

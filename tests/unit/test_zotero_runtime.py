@@ -33,7 +33,7 @@ def test_only_local_default_displays_start_stop_in_toolbar_and_tools():
 PaperLoom.config = {unified:true};
 const nodes = new Map();
 const doc = {getElementById(id) {
-  if (!nodes.has(id)) nodes.set(id, {removeAttribute(){}});
+  if (!nodes.has(id)) nodes.set(id, {dataset:{},removeAttribute(){}});
   return nodes.get(id);
 }};
 PaperLoom.windows.set({document:doc}, []);
@@ -44,7 +44,10 @@ for (const mode of ["layout", "cloud", "mineru", "mineru-local", "local", "layou
   PaperLoom.UI.refreshService();
   assert.equal(button.hidden, mode !== "local");
   assert.equal(menu.hidden, mode !== "local");
-  if (!button.hidden) assert.equal(button.textContent, "预热本地 OCR");
+  if (!button.hidden) {
+    assert.equal(button.textContent, "预热本地 OCR");
+    assert.equal(button.dataset.phase, PaperLoom.LocalOCR.state.phase);
+  }
 }
 """)
 

@@ -62,10 +62,13 @@
             if (!path || !await IOUtils.exists(path)) reason = "PDF 待下载或文件缺失";
           }
         }
+        const dateAdded = paper.dateAdded || "";
+        const added = dateAdded && Zotero.Date.sqlToDate(dateAdded, true);
+        const localAdded = added && Number.isFinite(added.getTime()) ? Zotero.Date.dateToSQL(added).slice(0,10) : "";
         const titleItem = PL.TitleTranslations.paper(paper);
         rows.push({id,source,item:paper,titleItem,title:paper.getField("title") || source?.getField("title") || "未命名文献",
           creator:paper.getField("firstCreator") || "",year:(paper.getField("date") || "").match(/\d{4}/)?.[0] || "",
-          pdfTitle:source?.getField("title") || "",available:!!source && !reason,reason,preselected:preselected.has(id),
+          dateAdded,localAdded,pdfTitle:source?.getField("title") || "",available:!!source && !reason,reason,preselected:preselected.has(id),
           titleAvailable:!!titleItem && !!PL.TitleTranslations.original(titleItem), titlePreselected:selectedPapers.has(titleItem?.id)});
         if (index % 50 === 49) await Zotero.Promise.delay(0);
       }

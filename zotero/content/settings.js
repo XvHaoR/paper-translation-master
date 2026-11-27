@@ -3,7 +3,40 @@ window.addEventListener("DOMContentLoaded", async () => {
   const PL = window.arguments[0].wrappedJSObject.controller;
   window.document.title = `${PL.name} ${PL.version || ""} 设置`;
   const $ = id => window.document.getElementById(id);
-  const status = text => { $("status").textContent = text; };
+  const status = (text, tone = "info") => {
+    $("status").textContent = text;
+    $("status").dataset.tone = tone;
+  };
+  $("version").textContent = PL.version || "";
+  const tabs = [...document.querySelectorAll('[role="tab"]')];
+  const saveButtons = [$("saveModel"), $("saveLocal"), $("saveAppearance")];
+  function selectTab(index, focus = false) {
+    for (const [i, tab] of tabs.entries()) {
+      const active = i === index;
+      tab.setAttribute("aria-selected", String(active));
+      tab.tabIndex = active ? 0 : -1;
+      $(tab.getAttribute("aria-controls")).hidden = !active;
+      saveButtons[i].hidden = !active;
+    }
+    document.querySelector(".dialog-body").scrollTop = 0;
+    status("");
+    if (focus) tabs[index].focus();
+  }
+  tabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => selectTab(index));
+    tab.addEventListener("keydown", event => {
+      const target = {ArrowLeft: (index + tabs.length - 1) % tabs.length,
+        ArrowRight: (index + 1) % tabs.length, Home: 0, End: tabs.length - 1}[event.key];
+      if (target === undefined) return;
+      event.preventDefault();
+      selectTab(target, true);
+    });
+  });
+  const dirty = new Set();
+  const modelFields = ["llm_base_url", "llm_model", "llm_temperature", "llm_concurrency", "llm_api_key", "clearKey"];
+  for (const id of modelFields) {
+    for (const event of ["input","change"]) $(id).addEventListener(event, () => dirty.add(id));
+  }
   const unified = PL.config.unified;
   const local = () => unified ? ({
     recognitionMode:$("recognitionMode").value,
@@ -18,7 +51,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
   const action = (id, fn) => $(id).addEventListener("click", async () => {
     $(id).disabled = true;
-    try { await fn(); } catch (error) { status(error.message); }
+    try { await fn(); } catch (error) { status(error.message, "error"); }
     finally { if (!window.closed) $(id).disabled = false; }
   });
   $("autoOCR").checked = PL.pref("autoOCR", false);
@@ -91,6 +124,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     toggleCustom();
     $("localEngine").addEventListener("change", toggleCustom);
     $("recognitionMode").addEventListener("change", updateAuto);
+    $("recognitionMode").addEventListener("change", () => {
+      const section = {local: "localOptions", cloud: "cloudOptions"}[$("recognitionMode").value];
+      if (section) $(section).open = true;
+    });
     detectEngine().catch(error => { $("engineStatus").textContent = error.message; });
   }
   if (PL.config.cloudPreview) {
@@ -179,10 +216,10 @@ window.addEventListener("DOMContentLoaded", async () => {
       values[kind + "FontFamily"] = $(kind + "FontFamily").value;
       values[kind + "TextColor"] = $(kind + "ColorAuto").checked ? "" : $(kind + "TextColor").value;
     }
-    await PL.Appearance.save(values); status("阅读外观已保存并立即生效。");
+    await PL.Appearance.save(values); status("阅读外观已应用到打开的论文。", "success");
   });
   action("resetAppearance", async () => {
-    await PL.Appearance.save(PL.Appearance.defaults); readAppearance(PL.Appearance.read()); status("已恢复系统字体与自动文字颜色。");
+    await PL.Appearance.save(PL.Appearance.defaults); readAppearance(PL.Appearance.read()); status("已恢复系统字体和主题颜色。", "success");
   });
   action("chooseRoot", async () => {
     const { FilePicker } = ChromeUtils.importESModule("chrome://zotero/content/modules/filePicker.mjs");
@@ -190,20 +227,15 @@ window.addEventListener("DOMContentLoaded", async () => {
     picker.init(window, "选择论文翻译大师引擎目录", picker.modeGetFolder);
     if ((await picker.show()) !== picker.returnCancel) $("projectRoot").value = picker.file;
   });
-  const dirty = new Set();
-  const modelFields = ["llm_base_url", "llm_model", "llm_temperature", "llm_concurrency", "llm_api_key", "clearKey"];
-  for (const id of modelFields) {
-    for (const event of ["input","change"]) $(id).addEventListener(event, () => dirty.add(id));
-  }
   action("saveLocal", async () => {
     await PL.UI.applyLocal(local()); await saveMineru(); await saveCloud();
     if (dirty.size) await saveModel();
-    status("设置已保存。");
+    status("文献处理设置已保存。", "success");
   });
   action("close", () => window.close());
   const apply = async () => {
     if (!unified) { await PL.UI.applyLocal(local()); await saveCloud(); }
-    status("正在启动服务…");
+    status("正在连接本地服务…");
     await PL.Service.ensure();
   };
   const read = config => {
@@ -213,7 +245,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!dirty.has("llm_concurrency")) $("llm_concurrency").value = config.llm_concurrency || 3;
     $("llm_api_key").placeholder = config.llm_api_key ? "已保存密钥；留空保持不变" : "无密钥本地模型可留空";
   };
-  action("loadModel", async () => { await apply(); read(await PL.request("GET", "/api/settings")); status("已读取翻译配置。"); });
+  action("loadModel", async () => { await apply(); read(await PL.request("GET", "/api/settings")); status("已读取翻译配置。", "success"); });
   const modelConfig = () => {
     const body = {lang_to:$("language").value.trim()};
     for (const id of dirty) if (id !== "clearKey" && id !== "llm_api_key") body[id] = $(id).value.trim();
@@ -227,20 +259,23 @@ window.addEventListener("DOMContentLoaded", async () => {
     dirty.clear(); read(config);
     $("llm_api_key").value = ""; $("clearKey").checked = false;
     PL.setPref("language", config.lang_to || "zh");
-    status("翻译配置已保存。");
+    status("翻译配置已保存。", "success");
   };
   action("saveModel", saveModel);
   action("testModel", async () => {
     await apply();
     const probe = await PL.request("POST", "/api/settings/test", modelConfig());
     const detail = probe.mode === "single" ? "逐段翻译测试通过" : "多段翻译及公式占位符测试通过";
-    status(detail + (dirty.size ? "。点击「保存设置」后用于论文翻译。" : "。"));
+    status(detail + (dirty.size ? "。点击「保存翻译配置」后用于论文翻译。" : "。"), "success");
   });
   try {
     if (unified) {
       const saved = await PL.Runtime.translationSettings();
       if (saved) read(saved);
     }
-    if (await PL.Service.online()) read(await PL.request("GET", "/api/settings"));
-  } catch (_) { status("可点击「启动并读取翻译配置」重试。"); }
+    if (await PL.Service.online()) {
+      const saved = await PL.request("GET", "/api/settings");
+      read(saved);
+    }
+  } catch (_) { if (!dirty.size) status("可点击「重新读取配置」重试。"); }
 });

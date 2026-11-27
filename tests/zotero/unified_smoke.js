@@ -94,6 +94,8 @@ async function runUnifiedSmoke(legacy) {
       "Fresh profile defaults to layout and leaves legacy automation disabled");
     const settings = PL.UI.settings(window);
     await waitFor(() => settings.document.getElementById("mineruServerURL")?.value);
+    settings.document.getElementById("tab-process").click();
+    check(!settings.document.getElementById("saveLocal").hidden, "Recognition settings expose the processing save action");
     check(Array.from(settings.document.getElementById("recognitionMode").options, o => o.value).join() === "layout,local,cloud,mineru,mineru-local",
       "Native Zotero settings shows all discovery and MinerU choices");
     const setting = id => settings.document.getElementById(id);
@@ -157,6 +159,7 @@ async function runUnifiedSmoke(legacy) {
     }
     field("testModel").click();
     await waitFor(() => field("status").textContent.includes("测试通过"));
+    field("tab-process").click();
     field("saveLocal").click();
     await waitFor(async () => (await PL.request("GET", "/api/settings")).llm_model === "fixture");
     check((await PL.request("GET","/api/settings")).llm_base_url === unifiedFixtureURL + "/fixture/v1",
@@ -175,6 +178,14 @@ async function runUnifiedSmoke(legacy) {
     check(PL.TitleTranslations.column(noPDF) === "无 PDF 测试论文" &&
       !PL.Store.get(noPDF).ocr && !Object.keys(PL.Store.get(noPDF).translations).length,
       "Title-only action populates the title column without creating OCR or a full translation");
+    const pickerField = id => titleDialog.document.getElementById(id);
+    for (const [id, value] of [["sort", "recent"], ["statusFilter", "ready"], ["search", "无 PDF 测试论文"]]) {
+      pickerField(id).value = value;
+      pickerField(id).dispatchEvent(new titleDialog.Event(id === "search" ? "input" : "change", {bubbles:true}));
+    }
+    check(titleRow()?.checked && pickerField("papers").children.length === 1 &&
+      pickerField("papers").textContent.includes("已翻译标题"),
+      "Recent sorting and completed-title filtering preserve the checked metadata-only paper when searching its translated title");
     titleDialog.close();
     await window.ZoteroPane.selectItem(parent.id);
     const translateDialog = PL.BatchPicker.open(window, "translate");

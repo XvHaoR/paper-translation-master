@@ -1,0 +1,77 @@
+/* The PDF layout lives in the reader iframe and the aligned reading panel lives in Zotero chrome. */
+body.paperloom-reading #split-view { flex-direction: row !important; }
+body.paperloom-reading #split-view > .primary-view,
+body.paperloom-reading #reader-ui .split-view > .primary-view { flex: 0 0 var(--paperloom-pdf-width,50%) !important; width: var(--paperloom-pdf-width,50%) !important; min-width: 0; }
+body.paperloom-reading #split-view > .secondary-view,
+body.paperloom-reading #reader-ui .split-view > .secondary-view,
+body.paperloom-reading #reader-ui .split-view-resizer { display: none !important; }
+body.paperloom-swapped #split-view > .primary-view { order: 2 !important; }
+body.paperloom-swapped #reader-ui .split-view > .primary-view { margin-inline-start: calc(100% - var(--paperloom-pdf-width,50%)); }
+body.paperloom-ocr-only #split-view > .primary-view,
+body.paperloom-ocr-only #reader-ui .split-view > .primary-view,
+body.paperloom-ocr-only .paperloom-divider { display: none !important; }
+.paperloom-ocr-placeholder { flex: 1; min-width: 0; order: 2; }
+body.paperloom-swapped .paperloom-ocr-placeholder { order: 0; }
+.paperloom-divider { flex: 0 0 5px; background: #78899544; cursor: col-resize; order: 1; z-index: 4; }
+.paperloom-divider:hover, .paperloom-divider:focus-visible { background: #258781; }
+.paperloom-reader-controls, .paperloom-ocr-pane, #paperloom-service-toolbar, #paperloom-batch-toolbar {
+  --pl-surface: #fff; --pl-soft: #eef3f3; --pl-text: #20343e; --pl-muted: #4e626c;
+  --pl-line: #ccd7da; --pl-accent: #096769; --pl-tint: #deefeb; --pl-selected: #fff; --pl-danger: #a13939;
+  color-scheme: light dark; font-family: system-ui, "Microsoft YaHei UI", sans-serif; color: var(--pl-text);
+}
+@media (prefers-color-scheme: dark) {
+  .paperloom-reader-controls, .paperloom-ocr-pane, #paperloom-service-toolbar, #paperloom-batch-toolbar {
+    --pl-surface: #282f34; --pl-soft: #343c42; --pl-text: #e9eff1; --pl-muted: #becacf;
+    --pl-line: #48555b; --pl-accent: #7bd2c7; --pl-tint: #263f3f; --pl-selected: #0c2c2a; --pl-danger: #ffaaa6;
+  }
+}
+.paperloom-reader-controls, .paperloom-reader-controls button, #paperloom-service-toolbar, #paperloom-batch-toolbar,
+#paperloom-service-toolbar button, #paperloom-batch-toolbar button { -moz-window-dragging: no-drag; }
+.paperloom-reader-controls { display: inline-flex; align-items: center; gap: 1px; margin-inline: 4px; padding: 2px; border: 1px solid var(--pl-line); border-radius: 7px; background: var(--pl-soft); font-size: 12px; }
+.paperloom-reader-controls button, .paperloom-ocr-pane button, #paperloom-batch-toolbar button, #paperloom-start-service {
+  font: inherit; white-space: nowrap; cursor: pointer; border: 1px solid transparent; border-radius: 5px;
+  background: transparent; color: var(--pl-text); padding: 4px 7px; line-height: 1.3;
+}
+.paperloom-reader-controls button { padding: 3px 6px; color: var(--pl-muted); }
+.paperloom-reader-controls button[aria-pressed=true] { color: var(--pl-selected); background: var(--pl-accent); }
+.paperloom-reader-controls .paperloom-swap-button { border-inline-start-color: var(--pl-line); border-start-start-radius: 0; border-end-start-radius: 0; }
+.paperloom-reader-controls button:hover:not(:disabled):not([aria-pressed=true]),
+.paperloom-ocr-pane button:hover:not(:disabled), #paperloom-batch-toolbar button:hover, #paperloom-start-service:hover:not(:disabled) { background: var(--pl-tint); color: var(--pl-accent); }
+.paperloom-reader-controls button:disabled, .paperloom-ocr-pane :disabled { opacity: .48; cursor: default; }
+.paperloom-reader-controls button:focus-visible, .paperloom-ocr-pane :focus-visible, #paperloom-batch-toolbar button:focus-visible, #paperloom-start-service:focus-visible { outline: 2px solid var(--pl-accent); outline-offset: 1px; }
+.paperloom-ocr-pane { display: flex; flex-direction: column; min-width: 0; background: var(--pl-surface); font-size: 13px; }
+.paperloom-ocr-pane[hidden], .paperloom-ocr-placeholder[hidden], .paperloom-divider[hidden],
+.paperloom-ocr-pane [hidden], #paperloom-service-toolbar [hidden] { display: none !important; }
+.paperloom-toolbar-shell { flex: none; position: relative; z-index: 4; background: var(--pl-surface); }
+.paperloom-pane-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 5px 7px; border-bottom: 1px solid var(--pl-line); }
+.paperloom-reader-actions, .paperloom-toolbar-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; max-width: 100%; }
+.paperloom-toolbar-tools { margin-inline-start: auto; }
+.paperloom-pane-toolbar button { font-size: 12px; min-height: 26px; }
+.paperloom-ocr-pane button[aria-pressed=true], .paperloom-ocr-pane button[aria-expanded=true] { color: var(--pl-accent); background: var(--pl-tint); font-weight: 600; }
+.paperloom-pane-toolbar [data-action=translate]:not(:disabled), .paperloom-pane-toolbar [data-action=ocr]:not(:disabled) { color: var(--pl-accent); border-color: var(--pl-line); }
+.paperloom-ocr-pane button[aria-expanded]::after { content: "▾"; font-size: .8em; margin-inline-start: 4px; }
+.paperloom-toolbar-popover {
+  position: absolute; z-index: 5; top: 100%; inset-inline-end: 5px; max-width: calc(100% - 10px); min-width: min(170px,85%);
+  max-height: min(420px,var(--pl-pane-height,420px)); overflow: auto; display: flex; flex-direction: column; gap: 2px;
+  background: var(--pl-surface); padding: 6px; border: 1px solid var(--pl-line); border-radius: 8px; box-shadow: 0 5px 18px #0b243023;
+}
+.paperloom-toolbar-popover > button { text-align: start; width: 100%; padding: 6px 8px; }
+.paperloom-toolbar-popover button[data-action^=clear] { color: var(--pl-danger); }
+.paperloom-toolbar-popover select, .paperloom-toolbar-popover input { min-width: 0; color: var(--pl-text); background: var(--pl-surface); border: 1px solid var(--pl-line); border-radius: 5px; padding: 3px; font: inherit; }
+.paperloom-toolbar-popover select { width: 100%; margin-block: 2px 5px; }
+.paperloom-toolbar-popover hr { border: 0; border-top: 1px solid var(--pl-line); width: 100%; margin: 4px 0; }
+.paperloom-font-controls { display: flex; align-items: center; justify-content: space-between; gap: 3px; }
+.paperloom-font-controls input { width: 49px; }
+.paperloom-pane-content { position: relative; display: flex; flex: 1; min-height: 0; }
+.paperloom-pane-frame { position: relative !important; visibility: visible !important; flex: 1; min-width: 0; min-height: 0; width: 100%; height: 100%; border: 0; background: var(--pl-surface); }
+.paperloom-pane-status { flex: none; padding: 5px 12px; color: var(--pl-muted); background: var(--pl-soft); font-size: 12px; }
+.paperloom-pane-message { align-self: flex-start; max-width: 42em; margin: 22px; padding: 12px 16px; border-inline-start: 3px solid var(--pl-accent); color: var(--pl-text); background: var(--pl-soft); font: 14px/1.65 system-ui,sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; }
+#paperloom-batch-toolbar, #paperloom-service-toolbar { display: flex; align-items: center; gap: 4px; margin-inline: 6px; min-width: 0; font-size: 12px; }
+#paperloom-batch-toolbar button, #paperloom-start-service { border-color: var(--pl-line); background: var(--pl-surface); padding: 3px 7px; }
+#paperloom-start-service[data-phase=ready] { color: var(--pl-accent); background: var(--pl-tint); }
+#paperloom-start-service[data-phase=failed] { color: var(--pl-danger); }
+#paperloom-service-toolbar span { max-width: 205px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pl-muted); }
+#paperloom-startup-progress { width: 56px; height: 5px; accent-color: var(--pl-accent); }
+@media (forced-colors: active) {
+  .paperloom-reader-controls [aria-pressed=true], .paperloom-ocr-pane [aria-pressed=true] { outline: 2px solid Highlight; }
+}

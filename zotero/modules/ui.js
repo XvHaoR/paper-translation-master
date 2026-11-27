@@ -84,20 +84,22 @@
         parent.append(root);
         nodes.push(root);
       };
+      const style = doc.createElementNS(XHTML, "style");
+      style.id = "paperloom-window-style";
+      style.textContent = PL.chromeStyle;
+      doc.documentElement.append(style); nodes.push(style);
       menu(doc.getElementById("zotero-itemmenu"), "paperloom-item-menu", false);
       menu(doc.getElementById("menu_ToolsPopup"), "paperloom-tools-menu", true);
       const itemsToolbar = doc.getElementById("zotero-items-toolbar");
       if (itemsToolbar) {
         const batchGroup = doc.createElementNS(XHTML, "div");
         batchGroup.id = "paperloom-batch-toolbar";
-        batchGroup.style.cssText = "display:flex;gap:4px;margin-inline:6px;align-items:center";
         const actions = [["ocr",PL.config.unified ? "批量识别" : "批量 OCR"],["translate","批量翻译"]];
         if (PL.config.semanticSearch) actions.unshift(["semantic", "按内容找论文"]);
         for (const [kind,label] of actions) {
           const button = doc.createElementNS(XHTML,"button");
           button.id = `paperloom-batch-${kind}`; button.textContent = label;
           button.title = kind === "semantic" ? "搜索论文标题、摘要和已保存的识别段落" : "打开论文列表，勾选要处理的论文后再开始；不会立即执行任务";
-          button.style.cssText = "font:12px system-ui;white-space:nowrap;border:1px solid #8885;border-radius:4px;padding:4px 7px;background:transparent;color:inherit;cursor:pointer";
           button.addEventListener("click", PL.run(window, () =>
             kind === "semantic" ? PL.SemanticSearch.open(window) : PL.BatchPicker.open(window, kind)));
           batchGroup.append(button);
@@ -108,25 +110,20 @@
       if (host) {
         const group = doc.createElementNS(XHTML, "div");
         group.id = "paperloom-service-toolbar";
-        group.style.cssText = "display:flex;align-items:center;gap:7px;margin-inline:8px;font:12px system-ui;min-width:0";
         const button = doc.createElementNS(XHTML, "button");
         button.id = "paperloom-start-service";
-        button.style.cssText = "border:1px solid #8885;border-radius:4px;padding:4px 8px;font:inherit;color:inherit;background:transparent;white-space:nowrap;cursor:pointer";
         // Startup errors are shown beside this button; a modal would block the
         // repaint that hides the progress bar and obscure the retry action.
         button.addEventListener("click", () => (PL.config.unified ? PL.LocalOCRControl.toggle(window) :
           this.recognitionService().ensure()).catch(error => Zotero.logError(error)));
         const label = doc.createElementNS(XHTML, "span");
         label.id = "paperloom-startup-label";
-        label.style.cssText = "max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
         label.setAttribute("aria-live", "polite");
         const progress = doc.createElementNS(XHTML, "progress");
         progress.id = "paperloom-startup-progress";
-        progress.style.cssText = "width:105px;height:7px;accent-color:#3875d7";
         progress.setAttribute("aria-label", "OCR 服务启动进度");
         const tasks = doc.createElementNS(XHTML, "span");
         tasks.id = "paperloom-task-status";
-        tasks.style.cssText = "max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
         group.append(button, label, progress, tasks);
         const anchor = doc.getElementById("zotero-tb-sync-error");
         if (anchor?.parentElement === host) host.insertBefore(group, anchor);
@@ -164,6 +161,7 @@
         button.textContent = text;
         button.disabled = !!disabled;
         button.title = hint;
+        button.dataset.phase = state.phase;
         progress.hidden = !loading;
         // Loading a model has no honest percentage; indeterminate progress is
         // deliberate and the label reports the actual stage from the launcher.
@@ -199,7 +197,7 @@
       const argument = { controller: PL };
       argument.wrappedJSObject = argument;
       this.settingsWindow = window.openDialog("chrome://paperloom/content/settings.xhtml", "paperloom-settings",
-        "chrome,dialog=no,resizable,centerscreen,width=660,height=720", argument);
+        "chrome,dialog=no,resizable,centerscreen,width=740,height=660", argument);
       return this.settingsWindow;
     },
     async applyLocal(values) {

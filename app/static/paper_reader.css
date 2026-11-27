@@ -89,3 +89,10 @@ body.pl-editing main[hidden], .pl-edit-stage[hidden] { display: none !important;
 .pl-paper-reader .paper-equation-number{font-size:.85em;color:inherit}
 .pl-paper-reader .paper-warning{font:12px/1.5 system-ui,sans-serif;color:#8a5b12;margin:3px 0}
 .pl-paper-reader .paper-embedded-marker{display:none}
+
+/* Show one set of view controls while the Zotero toolbar is connected. */
+body[data-zotero-bridge="true"] > nav .paper-view-badge,
+body[data-zotero-bridge="true"] > nav button[data-translation-mode] { display: none; }
+body.pl-paper-reader[data-zotero-bridge="true"] { padding: clamp(10px, 2.5vw, 24px) clamp(12px, 4vw, 36px) 48px; }
+body.pl-paper-reader[data-zotero-bridge="true"] > nav { padding: 0 0 7px; margin: 0 0 10px; font-size: 11px; }
+body.pl-paper-reader[data-zotero-bridge="true"] [data-paper-role="document_title"] :is(h1,h2) { font-size: clamp(1.35em, 4.2vw, 1.85em); line-height: 1.27; }

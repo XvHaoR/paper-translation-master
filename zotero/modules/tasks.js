@@ -347,7 +347,11 @@
         id: crypto.randomUUID(), kind: titlesOnly ? "title" : translate ? "translate" : "ocr",
         total: sources.length, done: 0, success: 0, failed: 0, skipped: errors.length, finished: false,
       } : null;
-      if (batch) { this.batches.set(batch.id, batch); this.lastBatch = batch; onBatch?.(batch); PL.UI.refreshTasks(); }
+      if (batch) {
+        this.batches.set(batch.id, batch); this.lastBatch = batch;
+        onBatch?.(batch);
+        PL.UI.refreshTasks();
+      }
       const promises = sources.map(async source => {
         try {
           if (action === "clear-ocr") { await this.clearOCR(source); return; }
@@ -377,8 +381,7 @@
           // batch. Only the user's explicit View command creates a reader tab.
           if (action.startsWith("open-") && sources.length === 1) {
             const reader = await PL.ReaderUI.open(source);
-            await PL.ReaderUI.setMode(reader, "split");
-            await PL.ReaderUI.showSaved(reader, saved, kind);
+            await PL.ReaderUI.setMode(reader, "split", { kind, saved });
           }
           if (batch) batch.success++;
         }
