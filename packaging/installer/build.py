@@ -46,6 +46,8 @@ def main():
                         "--name", name, "--distpath", str(args.output.resolve()),
                         "--workpath", str(Path(temporary) / "work"), "--specpath", temporary,
                         "--paths", str(root / "packaging/installer"),
+                        # The installer loads the Windows process helper from runtime.zip.
+                        "--hidden-import=ctypes.wintypes",
                         "--add-data", f"{payload};.",
                         "--add-data", f"{metadata};.",
                         "--add-data", f"{notice};licenses",
