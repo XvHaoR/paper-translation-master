@@ -2,9 +2,7 @@
 
 本地 CPU 版继续提供完整安装包。若希望免本机模型部署，可另选[云端版](../README.md)；两者使用的识别模型不同，不承诺相同识别效果。
 
-# RapidOCR 完整文档引擎
-
-当前推荐使用 **0.5.0**：与 GPU 版使用同一个 HTML 阅读插件，下载同版本 RapidOCR CPU 安装器。此前 0.4.0／0.4.1 仅作历史归档，不再推荐安装。安装与升级步骤见 [安装说明](INSTALLATION.md)。
+在 Windows 上使用 **0.5.0-r1 RapidOCR 安装器**，并在 Zotero 中使用当前版插件。安装与升级步骤见 [安装说明](INSTALLATION.md)。
 
 ## 识别功能
 
@@ -24,8 +22,8 @@
 
 ## 安装
 
-1. 首次安装下载 [RapidOCR 引擎安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-rapidocr-setup-0.5.0.exe)，安装独立 OCR 引擎；旧引擎也需运行新版安装器更新代码，可复用原模型和缓存。
-2. 在 Zotero 插件管理器安装 [0.5.0 通用 XPI](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-0.5.0.xpi) 并重启。
+1. 下载 [RapidOCR 引擎安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/local-ocr-v0.5.0-r1/paper-translation-master-rapidocr-setup-0.5.0-r1.exe)。修复安装时选择原安装目录，可复用已有模型和下载缓存。
+2. 首次使用插件时，按 [图文教程](TUTORIAL.md) 安装 Windows 完整包和包内 XPI，再重启 Zotero。
 3. 打开设置检测引擎并保存；按需配置自己的翻译服务。已有 OCR 和译文可直接查看。
 
 安装器适用于 Windows 10 2004+／Windows 11 x64，CPU 即可，无需独立显卡、NVIDIA 驱动、CUDA、WSL 或系统 Python。

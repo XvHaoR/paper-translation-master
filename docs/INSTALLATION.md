@@ -4,23 +4,17 @@
 
 0.6.0 云端版：下载[Windows 完整包](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.6.0/paper-translation-master-cloud-windows-x64-0.6.0.zip)，解压并运行 Install-Cloud.cmd，安装包内 XPI，重启后填写 [AI Studio Access Token](https://aistudio.baidu.com/account/accessToken)。无需本机模型；PDF 会上传至飞桨。
 
-本地 GPU／CPU 版仍提供完整的 0.5.0 安装器和插件，下方保留部署与升级步骤。两种方式的插件功能一致，速度与具体识别结果受设备、模型和网络影响。
-
-# 安装与升级论文翻译大师 0.5.0
-
-[0.5.0 正式版和本地引擎下载](https://github.com/XvHaoR/paper-translation-master/releases/tag/v0.5.0)。下方是该版本的安装步骤。
-
 ## 安装插件与 OCR 引擎
 
-1. 下载 `paper-translation-master-0.5.0.xpi`，在 Zotero「工具 → 插件／附加组件 → 齿轮 → 从文件安装」中安装并重启。CPU、GPU 用户使用同一插件。
-2. 关闭 Zotero，按硬件选择下面的安装器。安装器将自动准备独立 Python、依赖和模型，真实识别自检通过后才注册引擎。
+1. 按照 [当前安装教程](TUTORIAL.md) 安装 Windows 完整包及里面的 XPI。CPU、GPU 用户使用同一插件。
+2. 关闭 Zotero，按硬件选择下面带 `-r1` 的安装器。修订版修复进度第 4 步报错 `cannot import name 'wintypes' from 'ctypes'`。安装器会准备独立 Python、依赖和模型，真实识别自检通过后才注册引擎。
 3. 重新打开 Zotero，在「工具 → 论文翻译大师 → 设置」中检测引擎并保存。已有手动目录时，确认它指向更新后的引擎；不要继续指向旧测试包。
 4. 翻译需要自己的 OpenAI 兼容接口地址、模型名和 API 密钥，可使用本地模型或远程 API。OCR 无需翻译密钥；远程翻译会向所配置服务商发送论文文本。
 
 | 引擎 | 安装器 | 要求 |
 | --- | --- | --- |
-| PaddleOCR-VL-1.6 GPU | `paper-translation-master-setup-0.5.0.exe` | Windows 10 2004+／11 x64；NVIDIA 显存 ≥8 GB、建议 12 GB，CC 7.x–9.x，驱动 ≥560.76；磁盘 ≥15 GB，建议 25 GB |
-| RapidOCR CPU 完整文档 | `paper-translation-master-rapidocr-setup-0.5.0.exe` | Windows 10 2004+／11 x64；建议内存 ≥8 GB、磁盘 ≥5 GB；无需 NVIDIA、CUDA、WSL，仍识别版面、公式和表格 |
+| PaddleOCR-VL-1.6 GPU | [下载 GPU 安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/local-ocr-v0.5.0-r1/paper-translation-master-setup-0.5.0-r1.exe) | Windows 10 2004+／11 x64；NVIDIA 显存 ≥8 GB、建议 12 GB，CC 7.x–9.x，驱动 ≥560.76；磁盘 ≥15 GB，建议 25 GB |
+| RapidOCR CPU 完整文档 | [下载 CPU 安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/local-ocr-v0.5.0-r1/paper-translation-master-rapidocr-setup-0.5.0-r1.exe) | Windows 10 2004+／11 x64；建议内存 ≥8 GB、磁盘 ≥5 GB；无需 NVIDIA、CUDA、WSL，仍识别版面、公式和表格 |
 
 GPU 安装器暂不自动支持 RTX 50 系列、AMD／Intel GPU。CPU 版不使用 GPU 安装器，也不会要求 NVIDIA 驱动。
 两个引擎分别安装在 `%LOCALAPPDATA%/PaperTranslationMaster` 和 `%LOCALAPPDATA%/PaperTranslationMasterRapidOCR`，可选择其他磁盘。
@@ -28,14 +22,11 @@ GPU 安装器暂不自动支持 RTX 50 系列、AMD／Intel GPU。CPU 版不使�
 
 首次需要联网下载数 GB 依赖及模型，模型齐备后可以本地识别。安装窗口显示进度和错误，失败后可重试并复用下载缓存；不修改系统 PATH 或覆盖系统 Python。
 
-## 从旧版本升级到 0.5.0
-
-**本次需同时升级 XPI 和引擎代码。旧版“只更新 XPI 即可”的说明不适用于这次大版本。**
+## 修复安装或从历史版本升级
 
 ### 通过安装器安装的用户
 
-关闭 Zotero，运行对应引擎的 0.5.0 安装器，继续选择原安装目录。程序更新代码，复用模型、下载缓存和工作区；遇到正在使用的引擎会阻止覆盖，等待进程退出后重试。
-安装新版 XPI 并重启后，再检测引擎、保存设置。无需删除旧插件数据或 Zotero 附件。
+关闭 Zotero 和旧安装窗口，运行对应的 `-r1` 安装器，继续选择原安装目录以复用模型、下载缓存和工作区。完成后重新打开 Zotero，在设置中检测引擎并保存。已经安装 0.8.2 插件的用户可以直接使用现有 XPI。
 
 ### 已配置源码／WSL 环境的用户
 

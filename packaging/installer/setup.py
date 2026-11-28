@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import queue
 import sys
+from tempfile import TemporaryDirectory
 import threading
 import traceback
 import webbrowser
@@ -14,12 +15,25 @@ import webbrowser
 from core import Cancelled, Installer
 
 
+def check_windows_worker(payload, release, archive):
+    with TemporaryDirectory(prefix="ocr-setup-self-test-") as temporary:
+        installer = Installer(Path(temporary), payload, release, lambda *_: None, threading.Event())
+        helper = installer.project / "scripts" / "process_lifetime.py"
+        helper.parent.mkdir(parents=True)
+        helper.write_bytes(archive.read("scripts/process_lifetime.py"))
+        command = Path(os.environ["SystemRoot"]) / "System32" / "cmd.exe"
+        marker = "ocr-setup-worker-ok"
+        output = installer.run_command([str(command), "/d", "/c", "echo", marker], timeout=15)
+        if output != marker:
+            raise RuntimeError("Bundled installer could not run a Windows worker")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--payload", type=Path)
     parser.add_argument("--release", type=Path)
     parser.add_argument("--target", type=Path)
-    parser.add_argument("--self-test", action="store_true", help="Check bundled files without installing")
+    parser.add_argument("--self-test", action="store_true", help="Check bundled files and worker launch without installing")
     args = parser.parse_args()
     resources = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
     payload = args.payload or resources / "runtime.zip"
@@ -28,7 +42,7 @@ def main():
     if args.self_test:
         import zipfile
         with zipfile.ZipFile(payload) as archive:
-            required = {"scripts/zotero_service.py", "app/cli.py", "packaging/installer/warmup.py",
+            required = {"scripts/zotero_service.py", "scripts/process_lifetime.py", "app/cli.py", "packaging/installer/warmup.py",
                         "packaging/installer/requirements-runtime.txt", "release.json"}
             if not required.issubset(set(archive.namelist())):
                 raise RuntimeError("Bundled runtime is incomplete")
@@ -37,6 +51,8 @@ def main():
                 raise RuntimeError("Full RapidOCR runtime is incomplete")
             if archive.testzip():
                 raise RuntimeError("Bundled runtime failed ZIP verification")
+            if os.name == "nt":
+                check_windows_worker(payload, release, archive)
         if getattr(sys, "frozen", False):
             for name in ("PYTHON-LICENSE.txt", "PROJECT-AGPL.txt", "THIRD_PARTY_NOTICES.md",
                          "PyInstaller-6.21.0.txt", "Python-3.13.txt"):
@@ -170,6 +186,10 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:
+        if "--self-test" in sys.argv[1:]:
+            if sys.stderr is not None:
+                traceback.print_exc()
+            raise SystemExit(1)
         # Resource errors must stay visible in a windowed build.
         import ctypes
         ctypes.windll.user32.MessageBoxW(None, traceback.format_exc(), "OCR 安装器错误", 0x10)

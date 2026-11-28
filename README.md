@@ -24,7 +24,7 @@
 | 扫描件，使用云端 | 飞桨云端 OCR 或 MinerU 官方云端 | 申请对应服务的令牌。识别时会上传选中的 PDF。[飞桨令牌](https://aistudio.baidu.com/account/accessToken) · [MinerU 令牌](https://mineru.net/apiManage/token) |
 | 自己运行了 MinerU | MinerU 自部署 | 填写服务地址，有鉴权时填写该服务的密钥 |
 
-Windows 提供两种可选的本地引擎。PaddleOCR-VL GPU 安装器需要 NVIDIA 独显，至少 8 GB 显存，推荐 12 GB；RapidOCR 使用 CPU，建议至少 8 GB 内存和 5 GB 可用磁盘。Apple 芯片 Mac 可直接使用包内解析和离线检索，做本地 OCR 时需另接兼容的引擎或服务。[Windows GPU 安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-setup-0.5.0.exe) · [Windows CPU 安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/v0.5.0/paper-translation-master-rapidocr-setup-0.5.0.exe) · [完整部署要求](docs/INSTALLATION.md)
+Windows 提供两种可选的本地引擎。PaddleOCR-VL GPU 安装器需要 NVIDIA 独显，至少 8 GB 显存，推荐 12 GB；RapidOCR 使用 CPU，建议至少 8 GB 内存和 5 GB 可用磁盘。Apple 芯片 Mac 可直接使用包内解析和离线检索，做本地 OCR 时需另接兼容的引擎或服务。[Windows GPU 安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/local-ocr-v0.5.0-r1/paper-translation-master-setup-0.5.0-r1.exe) · [Windows CPU 安装器](https://github.com/XvHaoR/paper-translation-master/releases/download/local-ocr-v0.5.0-r1/paper-translation-master-rapidocr-setup-0.5.0-r1.exe) · [完整部署要求](docs/INSTALLATION.md)
 
 ## 0.8.2 可以做什么
 

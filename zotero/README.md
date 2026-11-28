@@ -15,9 +15,9 @@ OCR 与译文分别保存为 Zotero 附件；再次查看已有版本无需启�
 
 从 [Releases](https://github.com/XvHaoR/paper-translation-master/releases) 下载最新 XPI，
 在 Zotero → 工具 → 插件／附加组件 → 从文件安装中选择它，重启 Zotero。
-旧版用户安装新版 XPI，并同步更新对应引擎代码（运行 0.5.0 安装器或更新源码）。插件身份与附件标签保留，已有结果仍可使用。旧版不再推荐安装，详见 [安装与升级](../docs/INSTALLATION.md)。
+Windows 本地引擎使用对应的 0.5.0-r1 修订安装器。插件和引擎的下载入口及升级步骤见 [安装与升级](../docs/INSTALLATION.md)。
 
-首次使用 OCR 的 Windows 用户请下载同版 Setup.exe，双击运行，点击「安装 OCR 引擎」。
+首次使用本地 OCR 的 Windows 用户请下载对应的修订安装器，双击运行并点击「安装 OCR 引擎」。
 安装器自动下载独立 Python、OCR 依赖与模型，并执行识别自检；完成后插件自动发现环境。
 在「工具 → 论文翻译大师 → 设置」中可以点击「检测已安装引擎」和「保存设置」，无需手填路径。
 支持硬件、首次下载、预览版验收范围见 [安装说明](../docs/INSTALLATION.md)。
